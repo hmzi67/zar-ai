@@ -1,0 +1,9 @@
+seed: 42
+model: facebook/nllb-200-distilled-600M
+retriever_config: configs/nlp/retriever.yaml
+generator:
+  backend: hf
+  model: null # TODO: English generator used by the translate baseline
+  max_new_tokens: 512
+  temperature: 0.2
+qa_file: ${paths.splits}/qa/val.jsonl

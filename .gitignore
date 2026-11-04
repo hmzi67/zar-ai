@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.ipynb_checkpoints/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data: DVC-tracked. Anchored with / so src/zarai/data/ stays in git.
+/data/**
+!/data/**/
+!/data/**/.gitkeep
+!/data/**/README.md
+!/data/**/*.dvc
+
+# Model weights and exports
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.gguf
+*.bin
+*.npz
+*.npy
+
+# Run outputs
+/experiments/runs/*
+!/experiments/runs/.gitkeep
+
+# Frontend
+node_modules/
+app/frontend/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# DVC local state (normally in .dvc/.gitignore, which --no-scm does not create)
+/.dvc/tmp
+/.dvc/cache
+/.dvc/config.local

@@ -1,0 +1,9 @@
+retriever_config: configs/nlp/retriever.yaml
+vision_config: configs/vision/finetune_local.yaml
+generator:
+  backend: hf # hf | vllm
+  model: null # TODO: set after the generator bake-off
+  max_new_tokens: 512
+  temperature: 0.2
+top_k_vision: 3
+min_score: 0.0 # TODO: tune on the val split; dense search always returns something

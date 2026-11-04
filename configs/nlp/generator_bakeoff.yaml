@@ -1,0 +1,7 @@
+seed: 42
+retriever_config: configs/nlp/retriever.yaml
+qa_file: ${paths.splits}/qa/val.jsonl
+backend: hf # hf | vllm
+candidates: [] # TODO: list the Hugging Face model IDs to compare
+max_new_tokens: 512
+temperature: 0.2

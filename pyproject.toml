@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zarai"
+version = "0.1.0"
+description = "Multilingual (Urdu, Roman Urdu, English) RAG chatbot and crop disease/pest image classifier for small farmers in Pakistan."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dynamic = ["dependencies", "optional-dependencies"]
+
+# requirements/*.txt are the single source of truth for each dependency group.
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements/core.txt"] }
+
+[tool.setuptools.dynamic.optional-dependencies]
+core = { file = ["requirements/core.txt"] }
+vision = { file = ["requirements/vision.txt"] }
+nlp = { file = ["requirements/nlp.txt"] }
+app = { file = ["requirements/app.txt"] }
+# dev pulls in the app group because tests/test_api_health.py exercises FastAPI.
+dev = { file = ["requirements/dev.txt", "requirements/app.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"zarai.data" = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["app/frontend", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"] # black owns line length

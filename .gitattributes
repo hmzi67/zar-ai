@@ -1,0 +1,8 @@
+* text=auto
+*.sh text eol=lf
+Makefile text eol=lf
+*.ipynb linguist-documentation
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.pdf binary

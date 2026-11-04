@@ -1,0 +1,7 @@
+# Paths are relative to the repo root; run all commands from there.
+raw: data/raw
+interim: data/interim
+processed: data/processed
+splits: data/splits
+kb_register: kb/source_register.csv
+runs: experiments/runs

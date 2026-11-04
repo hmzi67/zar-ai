@@ -1,0 +1,18 @@
+seed: 42
+chunks_file: ${paths.processed}/kb/chunks.jsonl
+mode: bm25 # bm25 | dense | hybrid
+top_k: 5
+dense:
+  model: BAAI/bge-m3
+  batch_size: 32
+  index_file: ${paths.processed}/kb/dense.npy
+hybrid:
+  rrf_k: 60
+  candidates: 50
+rerank:
+  enabled: false
+  model: BAAI/bge-reranker-v2-m3
+  candidates: 20
+eval:
+  qa_file: ${paths.splits}/qa/val.jsonl
+  ks: [1, 3, 5, 10]

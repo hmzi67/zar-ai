@@ -1,0 +1,21 @@
+seed: 42
+experiment: convnext_t
+data:
+  train_file: ${paths.splits}/images/train.jsonl
+  val_file: ${paths.splits}/images/val.jsonl
+  test_file: ${paths.splits}/images/field_test.jsonl
+  classes_file: ${paths.splits}/images/classes.json
+  image_size: 224
+  num_workers: 4
+model:
+  name: convnext_tiny.fb_in22k_ft_in1k
+  pretrained: true
+  freeze_backbone: false
+  checkpoint: null
+train:
+  epochs: 30
+  batch_size: 32
+  lr: 3.0e-4
+  weight_decay: 0.05
+calibration:
+  target_coverage: 0.8

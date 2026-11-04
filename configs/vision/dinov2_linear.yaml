@@ -1,0 +1,21 @@
+seed: 42
+experiment: dinov2_linear
+data:
+  train_file: ${paths.splits}/images/train.jsonl
+  val_file: ${paths.splits}/images/val.jsonl
+  test_file: ${paths.splits}/images/field_test.jsonl
+  classes_file: ${paths.splits}/images/classes.json
+  image_size: 518
+  num_workers: 4
+model:
+  name: vit_small_patch14_dinov2.lvd142m
+  pretrained: true
+  freeze_backbone: true # linear probe: only the classifier head trains
+  checkpoint: null
+train:
+  epochs: 30
+  batch_size: 32
+  lr: 1.0e-3
+  weight_decay: 0.0
+calibration:
+  target_coverage: 0.8

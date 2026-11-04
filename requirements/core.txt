@@ -1,0 +1,6 @@
+numpy>=1.26,<3
+scipy>=1.11,<2
+scikit-learn>=1.4,<2
+omegaconf>=2.3,<3
+jsonschema>=4.20,<5
+rank-bm25>=0.2,<1

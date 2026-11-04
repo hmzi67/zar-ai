@@ -1,0 +1,24 @@
+seed: 42
+base_model: null # TODO: set to the bake-off winner
+train_file: ${paths.processed}/sft/train.jsonl
+val_file: ${paths.processed}/sft/val.jsonl
+output_dir: ${paths.runs}/qlora
+sft:
+  qa_train: ${paths.splits}/qa/train.jsonl
+  qa_val: ${paths.splits}/qa/val.jsonl
+  chunks_file: ${paths.processed}/kb/chunks.jsonl
+  n_distractors: 3
+  p_gold: 0.8
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+train:
+  epochs: 3
+  batch_size: 2
+  grad_accum: 8
+  lr: 2.0e-4

@@ -1,0 +1,13 @@
+seed: 42
+register: ${paths.kb_register}
+text_dir: ${paths.interim}/kb_text
+chunks_file: ${paths.processed}/kb/chunks.jsonl
+chunk:
+  min_tokens: 300
+  max_tokens: 500
+  overlap_tokens: 50
+dense:
+  enabled: false # needs the nlp extra and a model download
+  model: BAAI/bge-m3
+  batch_size: 32
+  index_file: ${paths.processed}/kb/dense.npy

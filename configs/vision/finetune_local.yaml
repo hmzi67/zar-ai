@@ -1,0 +1,23 @@
+seed: 42
+experiment: finetune_local
+data:
+  train_file: ${paths.splits}/images/train.jsonl
+  val_file: ${paths.splits}/images/val.jsonl
+  test_file: ${paths.splits}/images/field_test.jsonl
+  classes_file: ${paths.splits}/images/classes.json
+  image_size: 384
+  num_workers: 4
+model:
+  name: tf_efficientnetv2_s.in21k_ft_in1k # TODO: set to the best baseline architecture
+  pretrained: false
+  freeze_backbone: false
+  checkpoint: null # TODO: path to the best baseline checkpoint
+train:
+  epochs: 15
+  batch_size: 16
+  lr: 5.0e-5
+  weight_decay: 0.05
+calibration:
+  target_coverage: 0.8
+  # TODO: path to calibration.json from zarai.vision.calibrate; used for abstention at serving time
+  file: null

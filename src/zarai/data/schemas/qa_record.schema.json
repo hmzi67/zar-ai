@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ZarAI Q&A record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "lang", "crop", "topic", "season", "question", "answer", "kb_chunk_ids", "source_type", "annotator", "expert_verified"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^qa_\\d{4,}$" },
+    "lang": { "enum": ["ur", "ur-Latn", "en"] },
+    "crop": { "enum": ["wheat", "potato", "tomato", "sugarcane", "maize", "cotton", "rice", "general"] },
+    "topic": { "enum": ["sowing_varieties", "fertiliser", "irrigation", "pest", "disease", "weed", "harvest_storage", "off_topic_unsafe"] },
+    "season": { "enum": ["rabi", "kharif", "any"] },
+    "question": { "type": "string", "minLength": 1 },
+    "answer": { "type": "string", "minLength": 1 },
+    "kb_chunk_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "source_type": { "enum": ["farmer", "expert", "llm"] },
+    "annotator": { "type": "string", "minLength": 1 },
+    "expert_verified": { "type": "boolean" },
+    "verifier": { "type": ["string", "null"] },
+    "notes": { "type": ["string", "null"] }
+  }
+}
