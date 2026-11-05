@@ -1,0 +1,30 @@
+schema: '2.0'
+stages:
+  clean_wheat:
+    cmd: .venv/bin/python -m zarai.data.clean_wheat --raw-dir data/wheat --seed 
+      42
+    deps:
+    - path: data/wheat
+      hash: md5
+      md5: cd676a8f5dba83c342d8607559dbea5e.dir
+      size: 6585660165
+      nfiles: 14154
+    - path: src/zarai/data/clean_wheat.py
+      hash: md5
+      md5: e1c5340773fbf00373e9eb3fa5d4b4c2
+      size: 19302
+    outs:
+    - path: data/interim/label_conflicts
+      hash: md5
+      md5: 704451b29abff8feac76be9a42f04615.dir
+      size: 503707188
+      nfiles: 257
+    - path: data/processed/wheat_v1
+      hash: md5
+      md5: 39050a955ae2d1d2127ef76c331481ae.dir
+      size: 425957242
+      nfiles: 10888
+    - path: data/splits/wheat_v1.csv
+      hash: md5
+      md5: b906284ee94810d8b6ca15daec52457d
+      size: 1971035

@@ -1,0 +1,10 @@
+stages:
+  clean_wheat:
+    cmd: .venv/bin/python -m zarai.data.clean_wheat --raw-dir data/wheat --seed 42
+    deps:
+      - data/wheat
+      - src/zarai/data/clean_wheat.py
+    outs:
+      - data/interim/label_conflicts
+      - data/processed/wheat_v1
+      - data/splits/wheat_v1.csv
