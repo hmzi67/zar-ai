@@ -1,0 +1,19 @@
+# Wheat vision v1: frozen EfficientNetV2-S. These runs trained with early-stopping patience 5, and
+# reproducing them needs train.early_stopping_patience=5 with configs/vision/wheat_v1_efficientnetv2.yaml.
+mlflow:
+  tracking_uri: file:./mlruns
+frozen:
+  registered_model: wheat-vision
+  alias: candidate
+  config: configs/vision/wheat_v1_efficientnetv2.yaml
+  # Seed to MLflow run ID, from the wheat_v1_baselines experiment.
+  runs:
+    "42": e4123b0516144fb687e9cf942ca6c6f7
+    "0": 94142b122b784279a811f3930a058d13
+    "1": 1ec14ad01b6046f28aca8625798a00f6
+    "2": 1daa65830603479bbed9cc5c67c9f30d
+  description: >-
+    Wheat vision v1, EfficientNetV2-S, 15 classes. A candidate, not cleared for field use. Trained
+    on wheat_v1, which includes a single watermarked source. Models trained without that source
+    reach only 0.33 mildew and 0.79 fusarium_head_blight recall on it, so test scores for those
+    classes overstate performance on unseen sources. See experiments/wheat_v1_leave_source_out.md.

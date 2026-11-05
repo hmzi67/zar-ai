@@ -125,6 +125,8 @@ Based on the nine logged runs above. Seed statistics cover seeds 0, 1, 2 and 42,
 
 ConvNeXt-T and EfficientNetV2-S are tied on the primary metric, mean val macro-F1. EfficientNetV2-S is the working choice, on val-based stability and calibration (see "Model comparison"). Field performance is unmeasured. `wheat_v1_watermark_check.md` measured the watermark directly and found little reliance on the text itself, but whether one source inflates these scores is still open.
 
+**Decision:** EfficientNetV2-S is frozen as wheat vision v1 (`configs/vision/wheat_vision_v1.yaml`). Its best-val seed is registered as the `candidate`, which doesn't clear it for field use: `wheat_v1_leave_source_out.md` shows that test scores overstate `mildew` on an unseen source.
+
 ### Model comparison
 
 - **Primary metric:** mean val macro-F1 is 0.8576 ± 0.0091 for ConvNeXt-T and 0.8544 ± 0.0039 for EfficientNetV2-S. The difference (0.0031) is well inside seed noise, so this is a tie.
