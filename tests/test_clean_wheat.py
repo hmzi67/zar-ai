@@ -10,6 +10,7 @@ from zarai.common.io import read_csv
 from zarai.data.clean_wheat import (
     CLUSTER_CONFLICT,
     CSV_COLUMNS,
+    EMBEDDING_CLUSTER_CONFLICT,
     LONG_SIDE,
     MD5_CONFLICT,
     PIXEL_CONFLICT,
@@ -266,14 +267,17 @@ def snapshot(root):
 
 
 def fake_embedder(paths, _pool):
-    """Unrelated unit vectors, except that embed_a.png and embed_b.png have cosine 0.96."""
+    """Unrelated unit vectors, except that each embed_*_a/b.png pair has cosine 0.96."""
     rng = np.random.default_rng(0)
     embeddings = rng.normal(size=(len(paths), 384)).astype(np.float32)
     embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
     names = [Path(path).name for path in paths]
-    a, b = names.index("embed_a.png"), names.index("embed_b.png")
-    other = embeddings[b] - (embeddings[b] @ embeddings[a]) * embeddings[a]
-    embeddings[b] = 0.96 * embeddings[a] + 0.28 * other / np.linalg.norm(other)
+    for stem in ("embed_same", "embed_mixed"):
+        if f"{stem}_a.png" not in names:
+            continue
+        a, b = names.index(f"{stem}_a.png"), names.index(f"{stem}_b.png")
+        other = embeddings[b] - (embeddings[b] @ embeddings[a]) * embeddings[a]
+        embeddings[b] = 0.96 * embeddings[a] + 0.28 * other / np.linalg.norm(other)
     return embeddings
 
 
@@ -335,8 +339,12 @@ def test_clean_wheat_end_to_end(tmp_path):
     brighter(pixels).save(folder("test", "leaf_blight") / "mixed_copy.png")
 
     # Linked only by the embeddings, and from different original splits.
-    save_noise(folder("train", "mildew") / "embed_a.png")
-    save_noise(folder("test", "mildew") / "embed_b.png")
+    save_noise(folder("train", "mildew") / "embed_same_a.png")
+    save_noise(folder("test", "mildew") / "embed_same_b.png")
+
+    # Linked only by the embeddings, under two classes.
+    save_noise(folder("train", "septoria") / "embed_mixed_a.png")
+    save_noise(folder("train", "brown_rust") / "embed_mixed_b.png")
 
     save_noise(folder("train", "healthy") / "transparent.png", channels=4)
     save_noise(folder("train", "mite") / "large.png", height=400, width=500)
@@ -361,7 +369,7 @@ def test_clean_wheat_end_to_end(tmp_path):
     assert len(kept("smut_0.png", "copy.png")) == 1
     assert len(kept("pixels_a.png", "pixels_b.png")) == 1
 
-    for pair in (("near.png", "near_copy.png"), ("embed_a.png", "embed_b.png")):
+    for pair in (("near.png", "near_copy.png"), ("embed_same_a.png", "embed_same_b.png")):
         found = kept(*pair)
         assert len(found) == 2
         assert found[0]["cluster_id"] == found[1]["cluster_id"]
@@ -384,26 +392,36 @@ def test_clean_wheat_end_to_end(tmp_path):
         ("pixel_conflict.png", "aphid"): PIXEL_CONFLICT,
         ("mixed.png", "tan_spot"): CLUSTER_CONFLICT,
         ("mixed_copy.png", "leaf_blight"): CLUSTER_CONFLICT,
+        ("embed_mixed_a.png", "septoria"): EMBEDDING_CLUSTER_CONFLICT,
+        ("embed_mixed_b.png", "brown_rust"): EMBEDDING_CLUSTER_CONFLICT,
     }
     assert all(Path(c["copied_to"]).is_file() for c in conflicts)
-    assert len({c["copied_to"] for c in conflicts}) == 4
+    assert len({c["copied_to"] for c in conflicts}) == 6
     assert not {c["pixel_md5"] for c in conflicts} & {r["pixel_md5"] for r in rows}
-    assert not kept("mixed.png", "mixed_copy.png", "pixel_conflict.png", "md5_conflict.png")
+    assert not kept(
+        "mixed.png",
+        "mixed_copy.png",
+        "pixel_conflict.png",
+        "md5_conflict.png",
+        "embed_mixed_a.png",
+        "embed_mixed_b.png",
+    )
 
     assert (out / "review" / "threshold_pairs.jpg").is_file()
     review = read_csv(out / "review" / "threshold_pairs.csv")
     assert {Path(p).name for row in review for p in (row["path_a"], row["path_b"])} == {
-        Path(r["path"]).name for r in kept("embed_a.png", "embed_b.png")
+        Path(r["path"]).name for r in kept("embed_same_a.png", "embed_same_b.png")
     }
 
     report = (out / "REPORT.md").read_text(encoding="utf-8")
     assert "## Leakage check" in report
     assert "## Known issues" in report
-    assert "| `leaf_blight\\|tan_spot` | 0 | 1 |" in report
+    assert "| `leaf_blight\\|tan_spot` | 0 | 1 | 0 |" in report
     assert "| `md5_conflict` | 1 | 2 | 1 |" in report
     assert "| `pixel_conflict` | 1 | 2 | 1 |" in report
     assert "| `cluster_conflict` | 1 | 2 | 2 |" in report
-    assert "| - new links | 1 |" in report
+    assert "| `embedding_cluster_conflict` | 1 | 2 | 2 |" in report
+    assert "| - new links | 2 |" in report
     assert "| New links crossing the old splits | 1 |" in report
     assert "| Downscaled to 384 px | 1 |" in report
     assert "| Images with transparency, flattened on white | 1 |" in report

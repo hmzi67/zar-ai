@@ -34,6 +34,7 @@ dist/
 *.npy
 
 # Run outputs
+/mlruns/
 /experiments/runs/*
 !/experiments/runs/.gitkeep
 

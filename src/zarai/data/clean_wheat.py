@@ -19,6 +19,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+from omegaconf import OmegaConf
 from sklearn.model_selection import StratifiedGroupKFold
 
 from zarai.common.io import read_csv
@@ -48,7 +49,6 @@ SPLIT_SUFFIXES = ("_train", "_valid", "_val", "_test")
 # 20 folds give exactly 70/15/15.
 FOLDS_PER_SPLIT = {"train": 14, "val": 3, "test": 3}
 MAX_HAMMING_DISTANCE = 6
-EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"
 EMBEDDING_RESIZE = 256
 EMBEDDING_CROP = 224
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -67,6 +67,7 @@ FOCUS_CONFLICT_PATTERNS = ("black_rust|brown_rust", "leaf_blight|septoria")
 MD5_CONFLICT = "md5_conflict"
 PIXEL_CONFLICT = "pixel_conflict"
 CLUSTER_CONFLICT = "cluster_conflict"
+EMBEDDING_CLUSTER_CONFLICT = "embedding_cluster_conflict"
 CSV_COLUMNS = [
     "path",
     "label",
@@ -327,17 +328,21 @@ def _embedding_input(path: str) -> np.ndarray:
 
 
 def dinov2_embeddings(
-    paths: list[str], pool, device: str = "cuda", batch_size: int = 128
+    paths: list[str],
+    pool,
+    model_name: str,
+    revision: str,
+    device: str = "cuda",
+    batch_size: int = 128,
 ) -> np.ndarray:
-    """Return L2-normalised DINOv2 ViT-S/14 CLS embeddings, shape (n, 384)."""
-    import timm
+    """Return L2-normalised DINOv2 CLS embeddings from one exact weights revision."""
     import torch
+
+    from zarai.vision.models import create_pinned_model
 
     if device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA unavailable: check nvidia-smi, or pass --device cpu")
-    model = timm.create_model(
-        EMBEDDING_MODEL, pretrained=True, img_size=EMBEDDING_CROP, num_classes=0
-    )
+    model = create_pinned_model(model_name, revision, img_size=EMBEDDING_CROP, num_classes=0)
     model = model.to(device).eval()
     mean = torch.tensor(IMAGENET_MEAN, device=device).view(1, 3, 1, 1)
     std = torch.tensor(IMAGENET_STD, device=device).view(1, 3, 1, 1)
@@ -471,9 +476,7 @@ def _table(header: list[str], rows: Iterable[Iterable]) -> list[str]:
     return lines + ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
 
 
-def _known_issues(
-    rows: list[dict], groups: list[dict], dark_labels: Counter, embedding_stats: dict
-) -> list[str]:
+def _known_issues(rows: list[dict], groups: list[dict], dark_labels: Counter) -> list[str]:
     """Build the Known issues section, using this run's numbers."""
     kept = Counter(r["label"] for r in rows)
     test = Counter(r["label"] for r in rows if r["split"] == "test")
@@ -483,9 +486,12 @@ def _known_issues(
 
     exact = Counter("|".join(g["labels"]) for g in groups if g["kind"] == "exact")
     cluster = Counter("|".join(g["labels"]) for g in groups if g["kind"] == "cluster")
-    patterns = sorted(set(exact) | set(cluster), key=lambda p: (-(exact[p] + cluster[p]), p))[:6]
+    embedding = Counter("|".join(g["labels"]) for g in groups if g["kind"] == "embedding")
+    totals = exact + cluster + embedding
+    patterns = sorted(totals, key=lambda p: (-totals[p], p))[:6]
     focus = ", ".join(
-        f"`{p}` ({exact[p]} exact, {cluster[p]} cluster)" for p in FOCUS_CONFLICT_PATTERNS
+        f"`{p}` ({exact[p]} exact, {cluster[p]} pHash cluster, {embedding[p]} embedding cluster)"
+        for p in FOCUS_CONFLICT_PATTERNS
     )
 
     small = sorted((c for c in kept if kept[c] < SMALL_CLASS_SIZE), key=kept.get)
@@ -514,15 +520,18 @@ def _known_issues(
         "### Label conflict patterns",
         "",
         f'The main patterns are {focus}. "Exact" counts images with identical bytes or pixels '
-        'under both labels, and "cluster" counts pHash near-duplicate clusters holding both. '
+        "under both labels. The cluster columns count near-duplicate clusters holding those labels. "
         "Patterns this concentrated may be a systematic mix-up rather than random error, so they "
         "need review by someone who can identify these diseases. All of these images are excluded "
         "and listed in `label_conflicts.csv`, but similar images labelled only one way can't be "
         "detected and may remain.",
         "",
         *_table(
-            ["labels", "exact groups", "pHash clusters"],
-            [["`" + p.replace("|", "\\|") + "`", exact[p], cluster[p]] for p in patterns],
+            ["labels", "exact groups", "pHash clusters", "embedding clusters"],
+            [
+                ["`" + p.replace("|", "\\|") + "`", exact[p], cluster[p], embedding[p]]
+                for p in patterns
+            ],
         ),
         "",
         "### Small classes",
@@ -531,13 +540,6 @@ def _known_issues(
         f"has {kept[largest]} images, {kept[largest] / kept[smallest]:.1f} times the smallest. "
         "Per-class scores for small classes rest on few test images and will be noisy, so report "
         "macro-averaged metrics with confidence intervals.",
-        "",
-        "### Embedding clusters with mixed labels",
-        "",
-        f"{embedding_stats['mixed_clusters']} clusters ({embedding_stats['mixed_images']} images) "
-        "hold more than one label only after the embedding links were added. They stay in the "
-        "dataset, each in one split, because they have not been reviewed. Only mixed-label pHash "
-        "clusters are excluded.",
         "",
     ]
 
@@ -550,6 +552,7 @@ def render_report(
     exports: list[tuple[int, bool, bool]],
     phash_stats: dict,
     embedding_stats: dict,
+    embedding_model: str,
     seed: int,
 ) -> str:
     """Build REPORT.md. It has no timestamps, so a rerun gives an identical file."""
@@ -611,6 +614,7 @@ def render_report(
                 ),
             ),
             (CLUSTER_CONFLICT, sum(g["kind"] == "cluster" for g in groups)),
+            (EMBEDDING_CLUSTER_CONFLICT, sum(g["kind"] == "embedding" for g in groups)),
         )
     ]
 
@@ -638,7 +642,7 @@ def render_report(
         "",
         f"Seed {seed}. Images are compared by decoded RGB pixels after flattening transparency. "
         f"Near-duplicates are pHash at Hamming distance <= {MAX_HAMMING_DISTANCE} or DINOv2 "
-        f"(`{EMBEDDING_MODEL}`) CLS cosine >= {MIN_COSINE}, all computed on the source images "
+        f"(`{embedding_model}`) CLS cosine >= {MIN_COSINE}, all computed on the source images "
         f"before resizing. JPEG quality {JPEG_QUALITY}. Images are downscaled to {LONG_SIDE} px "
         "on the long side only if larger.",
         "",
@@ -675,11 +679,14 @@ def render_report(
         ),
         "",
         "Conflicts are counted as file md5s for `md5_conflict`, pixel hashes for "
-        "`pixel_conflict`, and pHash clusters for `cluster_conflict`.",
+        "`pixel_conflict`, and clusters for `cluster_conflict` (pHash) and "
+        "`embedding_cluster_conflict` (pHash plus embedding links).",
         "",
         "## Near-duplicates",
         "",
-        "Near-duplicates are not removed: they stay in the dataset, together in one split.",
+        "Near-duplicates are not removed: they stay in the dataset, together in one split. Pair and "
+        "merge counts are from before the embedding conflicts were excluded. Final clusters are "
+        "from after.",
         "",
         *_table(
             ["Item", "Count"],
@@ -744,9 +751,27 @@ def render_report(
         "No file md5 or pixel hash appears twice, every pHash and embedding pair is in one split, "
         "and no excluded conflict image is in wheat_v1.",
         "",
-        *_known_issues(rows, groups, dark_labels, embedding_stats),
+        *_known_issues(rows, groups, dark_labels),
     ]
     return "\n".join(lines)
+
+
+def _link_images(records: list[dict], embeddings: np.ndarray) -> dict:
+    """Find pHash and embedding pairs among records and build clusters from both."""
+    phash_pairs = near_duplicate_pairs(_hash_array(records), MAX_HAMMING_DISTANCE)
+    phash_clusters = cluster_ids(len(records), phash_pairs)
+    candidates = embedding_pairs(embeddings, MIN_COSINE - REVIEW_MARGIN)
+    linked = [p for p in candidates if p[2] >= MIN_COSINE]
+    all_pairs = phash_pairs + [(i, j) for i, j, _ in linked]
+    return {
+        "phash_pairs": phash_pairs,
+        "phash_clusters": phash_clusters,
+        "candidates": candidates,
+        "linked": linked,
+        "new_links": [p for p in linked if phash_clusters[p[0]] != phash_clusters[p[1]]],
+        "all_pairs": all_pairs,
+        "final_clusters": cluster_ids(len(records), all_pairs),
+    }
 
 
 def clean_wheat(
@@ -756,7 +781,8 @@ def clean_wheat(
     splits_csv: Path,
     seed: int = 42,
     workers: int | None = None,
-    embedder: Embedder = dinov2_embeddings,
+    embedder: Embedder | None = None,
+    embedding_model: str = "unspecified",
 ) -> list[dict]:
     """Run the whole pipeline and return the rows of the splits CSV."""
     _check_outputs(raw_dir, out_dir, conflicts_dir, splits_csv)
@@ -795,36 +821,55 @@ def clean_wheat(
         kept = [i for i, c in zip(images, clusters, strict=True) if c not in mixed]
         log.info("excluded %d mixed-label pHash clusters; %d images left", len(mixed), len(kept))
 
-        phash_pairs = near_duplicate_pairs(_hash_array(kept), MAX_HAMMING_DISTANCE)
-        phash_clusters = cluster_ids(len(kept), phash_pairs)
-
         embeddings = embedder([r["path"] for r in kept], pool)
-        candidates = embedding_pairs(embeddings, MIN_COSINE - REVIEW_MARGIN)
-        linked = [p for p in candidates if p[2] >= MIN_COSINE]
-        new_links = [p for p in linked if phash_clusters[p[0]] != phash_clusters[p[1]]]
-        log.info("%d embedding pairs, %d new links", len(linked), len(new_links))
-
-        all_pairs = phash_pairs + [(i, j) for i, j, _ in linked]
-        final_clusters = cluster_ids(len(kept), all_pairs)
+        links = _link_images(kept, embeddings)
         labels = [r["label"] for r in kept]
-        splits = stratified_group_split(labels, final_clusters, seed)
-        assert_pairs_in_one_split(all_pairs, splits)
-
         old_splits = [{c["original_split"] for c in r["copies"]} for r in kept]
-        mixed_final = mixed_label_clusters(labels, final_clusters)
+        new_links = links["new_links"]
         embedding_stats = {
-            "pairs": len(linked),
-            "already_linked": len(linked) - len(new_links),
+            "pairs": len(links["linked"]),
+            "already_linked": len(links["linked"]) - len(new_links),
             "new_links": len(new_links),
             "cross_old_splits": sum(
                 len(old_splits[i] | old_splits[j]) > 1 for i, j, _ in new_links
             ),
             "new_mixed": sum(labels[i] != labels[j] for i, j, _ in new_links),
-            "merges": len(set(phash_clusters)) - len(set(final_clusters)),
-            "mixed_clusters": len(mixed_final),
-            "mixed_images": sum(c in mixed_final for c in final_clusters),
+            "merges": len(set(links["phash_clusters"])) - len(set(links["final_clusters"])),
         }
-        phash_stats = {"pairs": len(phash_pairs), "clusters": len(set(phash_clusters))}
+        phash_stats = {
+            "pairs": len(links["phash_pairs"]),
+            "clusters": len(set(links["phash_clusters"])),
+        }
+        log.info("%d embedding pairs, %d new links", len(links["linked"]), len(new_links))
+
+        # Clusters that hold mixed labels only through embedding links are excluded too.
+        mixed = mixed_label_clusters(labels, links["final_clusters"])
+        members = defaultdict(list)
+        for image, cluster in zip(kept, links["final_clusters"], strict=True):
+            members[cluster].append(image)
+        groups += [
+            {
+                "kind": "embedding",
+                "group": f"embedding_cluster_{cluster}",
+                "labels": sorted({r["label"] for r in members[cluster]}),
+                "copies": [
+                    {**copy, "reason": EMBEDDING_CLUSTER_CONFLICT}
+                    for image in members[cluster]
+                    for copy in image["copies"]
+                ],
+            }
+            for cluster in sorted(mixed)
+        ]
+        keep = [i for i, c in enumerate(links["final_clusters"]) if c not in mixed]
+        kept = [kept[i] for i in keep]
+        links = _link_images(kept, embeddings[keep])
+        log.info("excluded %d mixed-label embedding clusters; %d left", len(mixed), len(kept))
+        assert not mixed_label_clusters([r["label"] for r in kept], links["final_clusters"])
+
+        final_clusters = links["final_clusters"]
+        all_pairs = links["all_pairs"]
+        splits = stratified_group_split([r["label"] for r in kept], final_clusters, seed)
+        assert_pairs_in_one_split(all_pairs, splits)
 
         rows = [
             {
@@ -852,7 +897,11 @@ def clean_wheat(
         )
 
     review_pairs = select_review_pairs(
-        [p for p in candidates if phash_clusters[p[0]] != phash_clusters[p[1]]],
+        [
+            p
+            for p in links["candidates"]
+            if links["phash_clusters"][p[0]] != links["phash_clusters"][p[1]]
+        ],
         MIN_COSINE,
         REVIEW_MARGIN,
         N_REVIEW_PAIRS,
@@ -867,7 +916,15 @@ def clean_wheat(
     assert not missing, f"{len(missing)} listed images are missing: {missing[:5]}"
 
     report = render_report(
-        records, groups, unreadable, written, exports, phash_stats, embedding_stats, seed
+        records,
+        groups,
+        unreadable,
+        written,
+        exports,
+        phash_stats,
+        embedding_stats,
+        embedding_model,
+        seed,
     )
     (out_dir / "REPORT.md").write_text(report, encoding="utf-8")
     log.info("wrote %d images and %s", len(written), out_dir / "REPORT.md")
@@ -885,8 +942,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--workers", type=int, default=None, help="default: all CPUs")
     parser.add_argument("--device", default="cuda", help="device for the DINOv2 embeddings")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/data/wheat_v1.yaml"),
+        help="YAML that pins the embedding model and its Hugging Face revision",
+    )
     args = parser.parse_args()
     get_logger(__name__)
+    embedding = OmegaConf.load(args.config).embedding
     clean_wheat(
         args.raw_dir,
         args.out_dir,
@@ -894,7 +958,13 @@ def main() -> None:
         args.splits_csv,
         args.seed,
         args.workers,
-        partial(dinov2_embeddings, device=args.device),
+        partial(
+            dinov2_embeddings,
+            model_name=embedding.model,
+            revision=embedding.hf_revision,
+            device=args.device,
+        ),
+        f"{embedding.model}@{embedding.hf_revision}",
     )
 
 
