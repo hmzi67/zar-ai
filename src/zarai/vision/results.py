@@ -8,6 +8,8 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
+
 from zarai.vision.eval import FOCUS_PAIRS
 from zarai.vision.tracking import dvc_hashes, set_tracking_uri
 
@@ -87,6 +89,31 @@ RESULT_HEADER = [
 ]
 
 
+def seed_summary(runs: dict[tuple[str, str], dict]) -> list[list]:
+    """Mean and sample SD per model over all logged seeds, for models with at least two."""
+    columns = (
+        "best_val_macro_f1",
+        "test_macro_f1",
+        "test_accuracy",
+        "test_ece_after",
+        "test_accuracy_at_threshold",
+    )
+    rows = []
+    for config, name in BASELINES.items():
+        seeds = sorted((s for c, s in runs if c == config), key=int)
+        if len(seeds) < 2:
+            continue
+        row = [name, ", ".join(seeds)]
+        for column in columns:
+            values = [runs[config, s]["metrics"].get(column) for s in seeds]
+            if any(value is None for value in values):
+                row.append(TBD)
+            else:
+                row.append(f"{np.mean(values):.4f} ± {np.std(values, ddof=1):.4f}")
+        rows.append(row)
+    return rows
+
+
 def render_results(
     runs: dict[tuple[str, str], dict],
     per_class: dict | None,
@@ -107,9 +134,10 @@ def render_results(
             [[BASELINES[c], *_result_row(c, baseline[c])[1:]] for c in BASELINES],
         ),
         "",
-        f"Selected on validation macro-F1: **{BASELINES[best[0]] if best else TBD}**.",
+        f"Highest seed {BASELINE_SEED} validation macro-F1: "
+        f"**{BASELINES[best[0]] if best else TBD}**.",
         "",
-        "## Reruns of the selected model",
+        f"## Reruns of {BASELINES[best[0]] if best else 'the selected model'}",
         "",
     ]
     rerun_rows = [
@@ -117,6 +145,32 @@ def render_results(
         for seed in RERUN_SEEDS
     ]
     lines += [*table(["seed", *RESULT_HEADER[1:]], rerun_rows), ""]
+
+    lines += ["## All logged seeds", ""]
+    all_rows = [
+        [f"{BASELINES[config]}, seed {seed}", *_result_row("", runs[config, seed])[1:]]
+        for config in BASELINES
+        for seed in sorted((s for c, s in runs if c == config), key=int)
+    ]
+    lines += table(["run", *RESULT_HEADER[1:]], all_rows) if all_rows else [TBD]
+    lines += ["", "## Mean and SD across seeds", ""]
+    summary = seed_summary(runs)
+    if summary:
+        lines += table(
+            [
+                "model",
+                "seeds",
+                "val macro-F1",
+                "test macro-F1",
+                "test accuracy",
+                "test ECE after",
+                "accuracy when answering",
+            ],
+            summary,
+        )
+    else:
+        lines.append(TBD)
+    lines.append("")
 
     lines += ["## Confusion between similar classes (test)", ""]
     pair_rows = []

@@ -11,8 +11,9 @@ def cam_layer(model):
         # After the last block, the head reads only the CLS token, so patch tokens get no gradient.
         # Before that block's attention, they reach the CLS token and so have a real gradient.
         return model.blocks[-1].norm1
-    if hasattr(model, "conv_head"):  # EfficientNet
-        return model.conv_head
+    if hasattr(model, "bn2"):  # EfficientNet: bn2 also applies the activation after conv_head.
+        # conv_head's raw output comes before BatchNorm, and gives maps unrelated to the image.
+        return model.bn2
     raise ValueError(f"no Grad-CAM layer known for {type(model).__name__}")
 
 

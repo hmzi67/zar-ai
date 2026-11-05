@@ -5,7 +5,15 @@ from zarai.eval.vision_metrics import bootstrap_cis, confusion_between, top_conf
 from zarai.vision.datasets import SplitCsvDataset, class_balanced_weights, classes_from_rows
 from zarai.vision.export_onnx import outputs_match
 from zarai.vision.gradcam import cam_mass_on_mask
-from zarai.vision.results import END, START, TBD, render_results, replace_section, select_best
+from zarai.vision.results import (
+    END,
+    START,
+    TBD,
+    render_results,
+    replace_section,
+    seed_summary,
+    select_best,
+)
 from zarai.vision.tracking import flatten, require_run_id
 from zarai.vision.train import EarlyStopping, warmup_cosine_factor
 
@@ -177,11 +185,30 @@ def test_results_show_logged_values_and_mark_missing_ones():
     assert "0.9" not in convnext
 
 
+def test_seed_summary_needs_two_seeds_and_marks_missing_metrics():
+    runs = {
+        ("wheat_v1_convnext_t", "0"): run("a", best_val_macro_f1=0.8, test_macro_f1=0.7),
+        ("wheat_v1_convnext_t", "42"): run("b", best_val_macro_f1=0.9),
+        ("wheat_v1_efficientnetv2", "42"): run("c", best_val_macro_f1=0.9),
+    }
+    rows = seed_summary(runs)
+    assert len(rows) == 1
+    assert rows[0][:4] == ["ConvNeXt-T", "0, 42", "0.8500 ± 0.0707", TBD]
+
+
 def test_replace_section_keeps_the_written_analysis():
     document = f"intro\n{START}\nold\n{END}\nanalysis"
     assert replace_section(document, ["new"]) == f"intro\n{START}\nnew\n{END}\nanalysis"
     with pytest.raises(ValueError, match="markers"):
         replace_section("no markers", ["new"])
+
+
+def test_efficientnet_grad_cam_uses_the_layer_after_batch_norm():
+    timm = pytest.importorskip("timm")
+    from zarai.vision.gradcam import cam_layer
+
+    model = timm.create_model("efficientnetv2_rw_t", pretrained=False, num_classes=3)
+    assert cam_layer(model) is model.bn2
 
 
 def test_transforms_give_the_requested_size():

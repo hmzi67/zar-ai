@@ -133,6 +133,15 @@ def evaluate(cfg, run_dir: Path, log) -> None:
     configure(cfg)
     with mlflow.start_run(run_id=run_id):
         model, checkpoint = load_checkpoint(run_id, device)
+        if cfg.get("gradcam_only"):
+            # Replaces only the Grad-CAM grid and cam_* metrics. Pass the run's own seed=<n>.
+            with torch.enable_grad():
+                grid, cam_metrics = run_gradcam(model, cfg, checkpoint, device, run_dir)
+            mlflow.log_artifact(str(grid), "plots")
+            mlflow.log_metrics(cam_metrics)
+            mlflow.set_tag("gradcam_regenerated", "true")
+            log.info("regenerated Grad-CAM for %s", run_id)
+            return
         classes = checkpoint["classes"]
         log.info("checkpoint from epoch %d", checkpoint["epoch"])
         mean, std = checkpoint["mean"], checkpoint["std"]
