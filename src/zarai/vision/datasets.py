@@ -36,10 +36,14 @@ class SplitCsvDataset:
         classes: list[str] | None = None,
         max_samples: int | None = None,
         seed: int = 0,
+        exclude_paths: set[str] | None = None,
     ):
         rows = read_csv(splits_csv)
         self.classes = classes or classes_from_rows(rows)
-        self.rows = [row for row in rows if row["split"] == split]
+        exclude_paths = exclude_paths or set()
+        self.rows = [
+            row for row in rows if row["split"] == split and row["path"] not in exclude_paths
+        ]
         if not self.rows:
             raise ValueError(f"{splits_csv}: no rows in split {split!r}")
         if max_samples is not None and max_samples < len(self.rows):

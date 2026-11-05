@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from zarai.common.config import parse_config
+from zarai.common.io import read_csv
 from zarai.common.logging import get_logger
 from zarai.common.run_meta import start_run
 from zarai.eval.vision_metrics import macro_f1
@@ -72,6 +73,23 @@ def predict(model, loader, device: str, use_amp: bool = True) -> tuple[np.ndarra
     return np.concatenate(logits), np.concatenate(labels)
 
 
+def excluded_paths(cfg, split: str) -> set[str] | None:
+    """Paths left out of this split by data.exclude_csv, for a leave-source-out run.
+
+    Rows with a non-empty `layout` are left out of the splits in data.exclude_splits. The total
+    must equal data.exclude_expected, so a changed detection file can't pass unnoticed.
+    """
+    exclude_csv = cfg.data.get("exclude_csv")
+    if not exclude_csv or split not in cfg.data.exclude_splits:
+        return None
+    marked = [row for row in read_csv(exclude_csv) if row["layout"]]
+    if len(marked) != cfg.data.exclude_expected:
+        raise ValueError(
+            f"{exclude_csv}: expected {cfg.data.exclude_expected} images, found {len(marked)}"
+        )
+    return {row["path"] for row in marked}
+
+
 def eval_loader(cfg, split: str, mean, std, classes=None):
     """Loader over a split with the eval transform, in file order."""
     from torch.utils.data import DataLoader
@@ -86,6 +104,7 @@ def eval_loader(cfg, split: str, mean, std, classes=None):
         classes,
         cfg.data.get("max_samples"),
         cfg.seed,
+        excluded_paths(cfg, split),
     )
     return DataLoader(
         dataset,
@@ -120,6 +139,7 @@ def _train_loader(cfg, mean, std):
         None,
         cfg.data.get("max_samples"),
         cfg.seed,
+        excluded_paths(cfg, "train"),
     )
     generator = torch.Generator().manual_seed(cfg.seed)
     weights = class_balanced_weights(dataset.labels, cfg.train.sampler_power)

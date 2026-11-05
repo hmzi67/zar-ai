@@ -79,6 +79,12 @@ def log_run_context(cfg: DictConfig, run_dir: Path) -> None:
 
     mlflow.log_params(flatten(OmegaConf.to_container(cfg, resolve=True)))
     mlflow.log_params(dvc_hashes(cfg.data.splits_csv))
+    exclude_csv = cfg.data.get("exclude_csv")
+    if exclude_csv:
+        # The detection file isn't DVC-tracked, so its exact version is logged with the run.
+        digest = hashlib.md5(Path(exclude_csv).read_bytes(), usedforsecurity=False).hexdigest()
+        mlflow.log_param("data.exclude_csv_md5", digest)
+        mlflow.log_artifact(exclude_csv, "data")
     status = _git("status", "--porcelain")
     mlflow.set_tags(
         {
