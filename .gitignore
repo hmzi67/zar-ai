@@ -20,6 +20,7 @@ dist/
 !/data/**/.gitkeep
 !/data/**/README.md
 !/data/**/*.dvc
+!/data/**/*.SOURCE.md
 
 # Model weights and exports
 *.pt
@@ -33,6 +34,7 @@ dist/
 *.npy
 
 # Run outputs
+/mlruns/
 /experiments/runs/*
 !/experiments/runs/.gitkeep
 

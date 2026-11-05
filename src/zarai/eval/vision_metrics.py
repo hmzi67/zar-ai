@@ -54,6 +54,66 @@ def coverage_accuracy_curve(
     return curve
 
 
+def bootstrap_cis(
+    labels: np.ndarray, preds: np.ndarray, n_resamples: int = 1000, seed: int = 42
+) -> dict[str, dict[str, float]]:
+    """Macro-F1 and accuracy with percentile 95% CIs, resampling images with replacement."""
+    rng = np.random.default_rng(seed)
+    n = len(labels)
+    f1s, accuracies = np.empty(n_resamples), np.empty(n_resamples)
+    n_classes = int(max(labels.max(), preds.max())) + 1
+    all_labels = list(range(n_classes))
+    for i in range(n_resamples):
+        sample = rng.integers(0, n, n)
+        sampled_labels, sampled_preds = labels[sample], preds[sample]
+        present = np.unique(sampled_labels)
+        # A class absent from a resample has no support, so it isn't scored as an F1 of zero.
+        f1s[i] = f1_score(
+            sampled_labels,
+            sampled_preds,
+            labels=[c for c in all_labels if c in present],
+            average="macro",
+            zero_division=0,
+        )
+        accuracies[i] = (sampled_labels == sampled_preds).mean()
+    return {
+        "macro_f1": {
+            "value": macro_f1(labels, preds),
+            "low": float(np.percentile(f1s, 2.5)),
+            "high": float(np.percentile(f1s, 97.5)),
+        },
+        "accuracy": {
+            "value": float((labels == preds).mean()),
+            "low": float(np.percentile(accuracies, 2.5)),
+            "high": float(np.percentile(accuracies, 97.5)),
+        },
+    }
+
+
+def confusion_between(matrix: np.ndarray, classes: list[str], a: str, b: str) -> dict:
+    """How often classes a and b are mistaken for each other. Rows of the matrix are true labels."""
+    i, j = classes.index(a), classes.index(b)
+    return {
+        "a": a,
+        "b": b,
+        "a_support": int(matrix[i].sum()),
+        "b_support": int(matrix[j].sum()),
+        "a_as_b": int(matrix[i, j]),
+        "b_as_a": int(matrix[j, i]),
+    }
+
+
+def top_confusions(matrix: np.ndarray, classes: list[str], n: int = 10) -> list[dict]:
+    """The largest off-diagonal cells, as true label, predicted label and count."""
+    errors = [
+        {"true": classes[i], "predicted": classes[j], "count": int(matrix[i, j])}
+        for i in range(len(classes))
+        for j in range(len(classes))
+        if i != j and matrix[i, j] > 0
+    ]
+    return sorted(errors, key=lambda e: (-e["count"], e["true"], e["predicted"]))[:n]
+
+
 def classification_summary(logits: np.ndarray, labels: np.ndarray, class_names: list[str]) -> dict:
     probs = softmax(logits, axis=1)
     preds = probs.argmax(axis=1)

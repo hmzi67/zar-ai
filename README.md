@@ -104,12 +104,16 @@ make kb-build
 ### Vision (needs `vision`)
 
 ```bash
-make vision-train VISION_CONFIG=configs/vision/convnext_t.yaml
-make vision-eval  VISION_CONFIG=configs/vision/convnext_t.yaml
-python -m zarai.vision.calibrate --config configs/vision/finetune_local.yaml logits_file=val_logits.npz
+make vision-baselines    # all three wheat_v1 baselines, ONNX export and the results document
+
+# One model. Pass seed=0 and other key=value overrides at the end.
+bash scripts/run_wheat_v1.sh wheat_v1_convnext_t
+python -m zarai.vision.results    # refill experiments/wheat_v1_baselines.md
+
+MLFLOW_ALLOW_FILE_STORE=true .venv/bin/mlflow ui --backend-store-uri ./mlruns
 ```
 
-Pass `logits_file=x.npz` (arrays `logits`, `labels`) to `vision.eval` to score saved logits.
+Runs need a GPU and are logged to `./mlruns`. `eval`, `calibrate` and `export_onnx` take the training run's ID as `run_id=<id>`.
 
 ### RAG
 

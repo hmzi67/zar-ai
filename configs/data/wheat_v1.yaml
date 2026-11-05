@@ -1,0 +1,4 @@
+# Weights for the near-duplicate pass in zarai.data.clean_wheat, pinned to one Hugging Face commit.
+embedding:
+  model: vit_small_patch14_dinov2.lvd142m
+  hf_revision: 4610ca143709d58a633b6397a74412c2c3842454

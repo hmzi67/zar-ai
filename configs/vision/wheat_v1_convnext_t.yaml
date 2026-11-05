@@ -1,0 +1,39 @@
+seed: 42
+experiment: wheat_v1_convnext_t
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment: wheat_v1_baselines
+data:
+  splits_csv: ${paths.splits}/wheat_v1.csv
+  image_size: 224
+  eval_resize: 256
+  num_workers: 12
+model:
+  name: convnext_tiny.fb_in22k_ft_in1k
+  hf_revision: bc48a87f119bae1b06418f5340bfa97ef75d4609
+  pretrained: true
+  freeze_backbone: false
+train:
+  device: cuda
+  epochs: 25
+  batch_size: 64
+  eval_batch_size: 128
+  lr: 3.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 1
+  label_smoothing: 0.1
+  early_stopping_patience: 5
+  sampler_power: 0.5 # sqrt inverse class frequency
+  augment:
+    crop_scale: [0.6, 1.0]
+    randaugment_ops: 2
+    randaugment_magnitude: 9
+    jitter: 0.1
+    jitter_hue: 0.02
+eval:
+  n_bootstrap: 1000
+  gradcam_per_class: 16
+  onnx_tolerance: 1.0e-4
+  onnx_check_images: 16
+calibration:
+  target_coverage: 0.8

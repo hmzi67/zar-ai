@@ -1,7 +1,7 @@
 PY := .venv/bin/python
-VISION_CONFIG ?= configs/vision/baseline_efficientnetv2.yaml
+VISION_CONFIG ?= configs/vision/wheat_v1_efficientnetv2.yaml
 
-.PHONY: setup lint test kb-build vision-train vision-eval rag-eval app-dev
+.PHONY: setup lint test kb-build vision-train vision-eval vision-baselines rag-eval app-dev
 
 setup:
 	bash scripts/setup_env.sh dev
@@ -22,7 +22,10 @@ vision-train:
 	$(PY) -m zarai.vision.train --config $(VISION_CONFIG)
 
 vision-eval:
-	$(PY) -m zarai.vision.eval --config $(VISION_CONFIG)
+	$(PY) -m zarai.vision.eval --config $(VISION_CONFIG) run_id=$(RUN_ID)
+
+vision-baselines:
+	bash scripts/run_wheat_v1_baselines.sh
 
 rag-eval:
 	$(PY) -m zarai.eval.retrieval_metrics --config configs/nlp/retriever.yaml

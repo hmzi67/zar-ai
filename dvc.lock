@@ -1,0 +1,39 @@
+schema: '2.0'
+stages:
+  clean_wheat:
+    cmd: .venv/bin/python -m zarai.data.clean_wheat --raw-dir 
+      data/raw/images_public/wheat_plant_diseases --config 
+      configs/data/wheat_v1.yaml --seed 42
+    deps:
+    - path: configs/data/wheat_v1.yaml
+      hash: md5
+      md5: e79fb10496317900b9de1623f9ab2aab
+      size: 209
+    - path: data/raw/images_public/wheat_plant_diseases
+      hash: md5
+      md5: cd676a8f5dba83c342d8607559dbea5e.dir
+      size: 6585660165
+      nfiles: 14154
+    - path: src/zarai/data/clean_wheat.py
+      hash: md5
+      md5: 1f26e6bbac213548270bf763e4128ef8
+      size: 39243
+    - path: src/zarai/vision/models.py
+      hash: md5
+      md5: d9a5e79b051a81b5ea4cdf025cdb225a
+      size: 1739
+    outs:
+    - path: data/interim/label_conflicts
+      hash: md5
+      md5: 149ffc276293de29fb23176d8eea1023.dir
+      size: 552533421
+      nfiles: 544
+    - path: data/processed/wheat_v1
+      hash: md5
+      md5: a806332e8b58e98b6af893139bd3a17c.dir
+      size: 304587623
+      nfiles: 10593
+    - path: data/splits/wheat_v1.csv
+      hash: md5
+      md5: a301478ca1c041f875119eac6039b76b
+      size: 2615911
