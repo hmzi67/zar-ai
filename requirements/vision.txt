@@ -4,3 +4,4 @@ timm>=1.0,<2
 pillow>=10,<14
 onnx>=1.16,<2
 onnxruntime>=1.18,<2
+imagehash>=4.3,<5

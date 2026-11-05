@@ -1,6 +1,7 @@
 torch>=2.2,<3
 transformers>=4.45,<6
 sentence-transformers>=3,<7
+faiss-cpu>=1.8,<2
 accelerate>=1.0,<2
 peft>=0.13,<1
 datasets>=3,<6
