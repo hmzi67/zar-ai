@@ -1,8 +1,8 @@
 stages:
   clean_wheat:
-    cmd: .venv/bin/python -m zarai.data.clean_wheat --raw-dir data/wheat --seed 42
+    cmd: .venv/bin/python -m zarai.data.clean_wheat --raw-dir data/raw/images_public/wheat_plant_diseases --seed 42
     deps:
-      - data/wheat
+      - data/raw/images_public/wheat_plant_diseases
       - src/zarai/data/clean_wheat.py
     outs:
       - data/interim/label_conflicts

@@ -20,6 +20,7 @@ dist/
 !/data/**/.gitkeep
 !/data/**/README.md
 !/data/**/*.dvc
+!/data/**/*.SOURCE.md
 
 # Model weights and exports
 *.pt

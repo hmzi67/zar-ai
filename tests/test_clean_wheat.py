@@ -8,18 +8,24 @@ import pytest
 
 from zarai.common.io import read_csv
 from zarai.data.clean_wheat import (
+    CLUSTER_CONFLICT,
     CSV_COLUMNS,
     LONG_SIDE,
+    MD5_CONFLICT,
+    PIXEL_CONFLICT,
     WHEAT_CLASSES,
     assert_no_leakage,
     assert_pairs_in_one_split,
     clean_wheat,
     cluster_ids,
     collect_images,
-    group_by_md5,
+    embedding_pairs,
+    group_by_pixels,
+    mixed_label_clusters,
     near_duplicate_pairs,
     normalise_class_name,
     scaled_size,
+    select_review_pairs,
     stratified_group_split,
 )
 
@@ -60,29 +66,42 @@ def test_collect_images_rejects_unknown_class(tmp_path):
         collect_images(tmp_path)
 
 
-def record(md5, label, split="train", path=None):
+def record(md5, pixel_md5, label, split="train", name="x"):
     return {
         "md5": md5,
+        "pixel_md5": pixel_md5,
         "label": label,
         "original_split": split,
-        "path": path or f"{split}/{label}/{md5}.png",
+        "path": f"{split}/{label}/{name}.png",
     }
 
 
-def test_group_by_md5_keeps_one_copy_and_separates_conflicts():
-    kept, conflicts = group_by_md5(
+def test_group_by_pixels_keeps_one_copy_preferring_train():
+    kept, conflicts = group_by_pixels(
+        [record("a", "p", "smut", "test"), record("b", "p", "smut", "train")]
+    )
+    assert not conflicts
+    assert [(r["md5"], r["original_split"], len(r["copies"])) for r in kept] == [("b", "train", 2)]
+
+
+def test_group_by_pixels_gives_each_copy_its_conflict_reason():
+    _, conflicts = group_by_pixels(
         [
-            record("a", "smut", "test"),
-            record("a", "smut", "train"),
-            record("b", "smut"),
-            record("b", "mite", "valid"),
-            record("c", "mite"),
+            # Same file bytes under two labels, plus a re-encoded copy of the same pixels.
+            record("same", "p1", "smut"),
+            record("same", "p1", "mite", name="y"),
+            record("reencoded", "p1", "smut", name="z"),
+            # Different file bytes, identical pixels, different labels.
+            record("a", "p2", "smut", name="a"),
+            record("b", "p2", "blast", name="b"),
         ]
     )
-    assert [(r["md5"], r["original_split"]) for r in kept] == [("a", "train"), ("c", "train")]
-    assert [(g["md5"], g["labels"], len(g["copies"])) for g in conflicts] == [
-        ("b", ["mite", "smut"], 2)
-    ]
+    reasons = {g["group"]: Counter(r["reason"] for r in g["copies"]) for g in conflicts}
+    assert reasons == {
+        "p1": {MD5_CONFLICT: 2, PIXEL_CONFLICT: 1},
+        "p2": {PIXEL_CONFLICT: 2},
+    }
+    assert [g["labels"] for g in conflicts] == [["mite", "smut"], ["blast", "smut"]]
 
 
 def test_near_duplicates_cluster_through_a_chain():
@@ -90,6 +109,39 @@ def test_near_duplicates_cluster_through_a_chain():
     pairs = near_duplicate_pairs(hashes, max_distance=2)
     assert pairs == [(0, 1), (1, 2)]
     assert cluster_ids(4, pairs) == [0, 0, 0, 1]
+
+
+def test_embedding_pairs_finds_each_pair_once_across_chunks():
+    embeddings = np.array(
+        [[1, 0, 0], [0, 1, 0], [1, 0, 0], [0.6, 0.8, 0], [0, 0, 1]], dtype=np.float32
+    )
+    pairs = embedding_pairs(embeddings, min_cosine=0.95, chunk_size=2)
+    assert [(i, j) for i, j, _ in pairs] == [(0, 2)]
+    assert pairs[0][2] == pytest.approx(1.0)
+
+
+def test_embedding_and_phash_pairs_join_one_cluster():
+    assert cluster_ids(4, [(0, 1)] + [(1, 2)]) == [0, 0, 0, 1]
+
+
+def test_mixed_label_clusters():
+    assert mixed_label_clusters(["a", "a", "b", "c"], [0, 0, 1, 1]) == {1}
+
+
+def test_select_review_pairs_takes_both_sides_of_the_threshold():
+    pairs = [(i, i + 1, 0.93 + i * 0.002) for i in range(20)]
+    pairs.append((98, 99, 0.80))
+    pairs.append((97, 99, 0.999))
+    selected = select_review_pairs(pairs, threshold=0.95, margin=0.02, n=6)
+    cosines = [p[2] for p in selected]
+    assert sum(c >= 0.95 for c in cosines) == 3
+    assert sum(c < 0.95 for c in cosines) == 3
+    assert all(0.93 <= c <= 0.97 for c in cosines)
+
+
+def test_select_review_pairs_handles_too_few_pairs():
+    assert select_review_pairs([(0, 1, 0.95)], 0.95, 0.02, 20) == [(0, 1, 0.95)]
+    assert select_review_pairs([], 0.95, 0.02, 20) == []
 
 
 def split_dataset(seed=7):
@@ -134,19 +186,26 @@ def test_split_is_reproducible_and_changes_with_seed():
 
 
 def rows_of(*rows):
-    return [{"md5": md5, "cluster_id": cluster, "split": split} for md5, cluster, split in rows]
+    return [
+        {"md5": md5, "pixel_md5": pixels, "cluster_id": cluster, "split": split}
+        for md5, pixels, cluster, split in rows
+    ]
 
 
 def test_leakage_check_passes_on_clean_rows():
-    assert_no_leakage(rows_of(("a", 0, "train"), ("b", 0, "train"), ("c", 1, "test")))
+    assert_no_leakage(
+        rows_of(("a", "p", 0, "train"), ("b", "q", 0, "train"), ("c", "r", 1, "test"))
+    )
 
 
 @pytest.mark.parametrize(
     "rows",
     [
-        rows_of(("a", 0, "train"), ("a", 1, "test")),  # md5 across splits
-        rows_of(("a", 0, "train"), ("a", 1, "train")),  # md5 repeated in one split
-        rows_of(("a", 0, "train"), ("b", 0, "val")),  # cluster across splits
+        rows_of(("a", "p", 0, "train"), ("a", "q", 1, "test")),  # md5 across splits
+        rows_of(("a", "p", 0, "train"), ("a", "q", 1, "train")),  # md5 repeated in one split
+        rows_of(("a", "p", 0, "train"), ("b", "p", 1, "test")),  # pixels across splits
+        rows_of(("a", "p", 0, "train"), ("b", "p", 0, "train")),  # pixels repeated in one split
+        rows_of(("a", "p", 0, "train"), ("b", "q", 0, "val")),  # cluster across splits
     ],
 )
 def test_leakage_check_catches_overlap(rows):
@@ -165,12 +224,27 @@ def test_pair_check_catches_a_split_pair():
     [
         ((1000, 500), (384, 192)),
         ((500, 1000), (192, 384)),
-        ((96, 48), (384, 192)),
         ((5000, 2), (384, 1)),
+        ((385, 100), (384, 100)),
+        ((384, 200), (384, 200)),
+        ((96, 48), (96, 48)),
     ],
 )
-def test_scaled_size(size, expected):
+def test_scaled_size_only_downscales(size, expected):
     assert scaled_size(*size) == expected
+
+
+def test_outputs_may_not_overlap_the_raw_data(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for out, conflicts, csv_path in (
+        (raw / "out", tmp_path / "c", tmp_path / "s.csv"),
+        (tmp_path / "out", raw / "c", tmp_path / "s.csv"),
+        (tmp_path, tmp_path / "c", tmp_path / "s.csv"),
+        (tmp_path / "out", tmp_path / "c", raw / "s.csv"),
+    ):
+        with pytest.raises(ValueError, match="overlaps the raw data"):
+            clean_wheat(raw, out, conflicts, csv_path)
 
 
 FOLDER_STYLES = {
@@ -191,9 +265,22 @@ def snapshot(root):
     }
 
 
+def fake_embedder(paths, _pool):
+    """Unrelated unit vectors, except that embed_a.png and embed_b.png have cosine 0.96."""
+    rng = np.random.default_rng(0)
+    embeddings = rng.normal(size=(len(paths), 384)).astype(np.float32)
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+    names = [Path(path).name for path in paths]
+    a, b = names.index("embed_a.png"), names.index("embed_b.png")
+    other = embeddings[b] - (embeddings[b] @ embeddings[a]) * embeddings[a]
+    embeddings[b] = 0.96 * embeddings[a] + 0.28 * other / np.linalg.norm(other)
+    return embeddings
+
+
 def test_clean_wheat_end_to_end(tmp_path):
     pytest.importorskip("imagehash")
     image_module = pytest.importorskip("PIL.Image")
+    png_module = pytest.importorskip("PIL.PngImagePlugin")
 
     rng = np.random.default_rng(0)
     raw = tmp_path / "raw"
@@ -203,14 +290,11 @@ def test_clean_wheat_end_to_end(tmp_path):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def save_noise(path, mode="RGB"):
-        channels = len(mode)
-        pixels = rng.integers(0, 256, (48, 64, channels), dtype=np.uint8)
+    def save_noise(path, channels=3, height=48, width=64):
+        pixels = rng.integers(0, 256, (height, width, channels), dtype=np.uint8)
         image_module.fromarray(pixels).save(path)
         return pixels
 
-    for split in ("valid", "test"):
-        folder(split, "smut")
     for label in sorted(WHEAT_CLASSES):
         for i in range(30):
             save_noise(folder("train", label) / f"{label}_{i}.png")
@@ -218,20 +302,51 @@ def test_clean_wheat_end_to_end(tmp_path):
     # Exact duplicate in another split, under another spelling of the same class.
     exact = folder("train", "smut") / "smut_0.png"
     shutil.copy(exact, folder("test", "smut") / "copy.png")
+
     # Same bytes under two classes.
-    save_noise(folder("train", "mite") / "conflict.png")
-    shutil.copy(folder("train", "mite") / "conflict.png", folder("valid", "blast") / "conflict.png")
-    # Slightly brighter, so the md5 differs but the pHash stays close.
-    pixels = save_noise(folder("train", "aphid") / "near.png")
-    image_module.fromarray(np.clip(pixels.astype(int) + 2, 0, 255).astype(np.uint8)).save(
-        folder("test", "aphid") / "near_copy.png"
+    save_noise(folder("train", "mite") / "md5_conflict.png")
+    shutil.copy(
+        folder("train", "mite") / "md5_conflict.png", folder("valid", "blast") / "md5_conflict.png"
     )
-    save_noise(folder("train", "healthy") / "transparent.png", mode="RGBA")
+
+    # Same pixels but different bytes, with one consistent label: a duplicate the md5 can't see.
+    metadata = png_module.PngInfo()
+    metadata.add_text("note", "different bytes")
+    pixels = save_noise(folder("train", "healthy") / "pixels_a.png")
+    image_module.fromarray(pixels).save(
+        folder("test", "healthy") / "pixels_b.png", pnginfo=metadata
+    )
+
+    # Same pixels but different bytes, under two classes.
+    pixels = save_noise(folder("train", "smut") / "pixel_conflict.png")
+    image_module.fromarray(pixels).save(
+        folder("test", "aphid") / "pixel_conflict.png", pnginfo=metadata
+    )
+
+    # Near-duplicates (md5 and pixels differ, pHash close) with one label stay together.
+    def brighter(values):
+        return image_module.fromarray(np.clip(values.astype(int) + 2, 0, 255).astype(np.uint8))
+
+    pixels = save_noise(folder("train", "aphid") / "near.png")
+    brighter(pixels).save(folder("test", "aphid") / "near_copy.png")
+
+    # Near-duplicates under two classes.
+    pixels = save_noise(folder("train", "tan_spot") / "mixed.png")
+    brighter(pixels).save(folder("test", "leaf_blight") / "mixed_copy.png")
+
+    # Linked only by the embeddings, and from different original splits.
+    save_noise(folder("train", "mildew") / "embed_a.png")
+    save_noise(folder("test", "mildew") / "embed_b.png")
+
+    save_noise(folder("train", "healthy") / "transparent.png", channels=4)
+    save_noise(folder("train", "mite") / "large.png", height=400, width=500)
 
     before = snapshot(raw)
     out, conflicts_dir = tmp_path / "processed", tmp_path / "conflicts"
     splits_csv = tmp_path / "splits.csv"
-    rows = clean_wheat(raw, out, conflicts_dir, splits_csv, seed=1, workers=2)
+    rows = clean_wheat(
+        raw, out, conflicts_dir, splits_csv, seed=1, workers=2, embedder=fake_embedder
+    )
 
     assert snapshot(raw) == before
 
@@ -240,46 +355,55 @@ def test_clean_wheat_end_to_end(tmp_path):
     assert_no_leakage(rows)
     assert {r["split"] for r in rows} == {"train", "val", "test"}
 
-    exact_md5 = hashlib.md5(exact.read_bytes()).hexdigest()
-    assert sum(r["md5"] == exact_md5 for r in rows) == 1
+    def kept(*names):
+        return [r for r in rows if Path(r["original_path"]).name in names]
 
-    near = [r for r in rows if Path(r["original_path"]).name in ("near.png", "near_copy.png")]
-    assert len(near) == 2
-    assert near[0]["cluster_id"] == near[1]["cluster_id"]
-    assert near[0]["split"] == near[1]["split"]
+    assert len(kept("smut_0.png", "copy.png")) == 1
+    assert len(kept("pixels_a.png", "pixels_b.png")) == 1
 
-    for row in rows[:5] + near:
-        assert row["path"].endswith(f"{row['split']}/{row['label']}/{row['md5']}.jpg")
-        with image_module.open(row["path"]) as image:
-            assert image.format == "JPEG"
-            assert image.mode == "RGB"
-            assert max(image.size) == LONG_SIDE
+    for pair in (("near.png", "near_copy.png"), ("embed_a.png", "embed_b.png")):
+        found = kept(*pair)
+        assert len(found) == 2
+        assert found[0]["cluster_id"] == found[1]["cluster_id"]
+        assert found[0]["split"] == found[1]["split"]
+
+    for row in rows:
+        assert row["path"].endswith(f"{row['split']}/{row['label']}/{row['pixel_md5']}.jpg")
+        assert Path(row["path"]).is_file()
+    with image_module.open(kept("large.png")[0]["path"]) as image:
+        assert (image.format, image.mode, image.size) == ("JPEG", "RGB", (LONG_SIDE, 307))
+    with image_module.open(kept("near.png")[0]["path"]) as image:
+        assert image.size == (64, 48)
 
     conflicts = read_csv(conflicts_dir / "label_conflicts.csv")
-    assert [c["labels"] for c in conflicts] == ["blast|mite"]
-    assert Path(conflicts[0]["copied_to"]).is_file()
-    assert conflicts[0]["md5"] not in {r["md5"] for r in rows}
+    reasons = {(Path(c["original_path"]).name, c["label"]): c["reason"] for c in conflicts}
+    assert reasons == {
+        ("md5_conflict.png", "mite"): MD5_CONFLICT,
+        ("md5_conflict.png", "blast"): MD5_CONFLICT,
+        ("pixel_conflict.png", "smut"): PIXEL_CONFLICT,
+        ("pixel_conflict.png", "aphid"): PIXEL_CONFLICT,
+        ("mixed.png", "tan_spot"): CLUSTER_CONFLICT,
+        ("mixed_copy.png", "leaf_blight"): CLUSTER_CONFLICT,
+    }
+    assert all(Path(c["copied_to"]).is_file() for c in conflicts)
+    assert len({c["copied_to"] for c in conflicts}) == 4
+    assert not {c["pixel_md5"] for c in conflicts} & {r["pixel_md5"] for r in rows}
+    assert not kept("mixed.png", "mixed_copy.png", "pixel_conflict.png", "md5_conflict.png")
+
+    assert (out / "review" / "threshold_pairs.jpg").is_file()
+    review = read_csv(out / "review" / "threshold_pairs.csv")
+    assert {Path(p).name for row in review for p in (row["path_a"], row["path_b"])} == {
+        Path(r["path"]).name for r in kept("embed_a.png", "embed_b.png")
+    }
 
     report = (out / "REPORT.md").read_text(encoding="utf-8")
     assert "## Leakage check" in report
-    assert "| Conflict groups (excluded) | 1 |" in report
+    assert "## Known issues" in report
+    assert "| `leaf_blight\\|tan_spot` | 0 | 1 |" in report
+    assert "| `md5_conflict` | 1 | 2 | 1 |" in report
+    assert "| `pixel_conflict` | 1 | 2 | 1 |" in report
+    assert "| `cluster_conflict` | 1 | 2 | 2 |" in report
+    assert "| - new links | 1 |" in report
+    assert "| New links crossing the old splits | 1 |" in report
+    assert "| Downscaled to 384 px | 1 |" in report
     assert "| Images with transparency, flattened on white | 1 |" in report
-
-
-def test_outputs_may_not_overlap_the_raw_data(tmp_path):
-    pytest.importorskip("imagehash")
-    image_module = pytest.importorskip("PIL.Image")
-    raw = tmp_path / "raw"
-    rng = np.random.default_rng(0)
-    for split, style in FOLDER_STYLES.items():
-        for label in sorted(WHEAT_CLASSES):
-            folder = raw / split / style(label)
-            folder.mkdir(parents=True)
-            if split == "train":
-                for i in range(25):
-                    pixels = rng.integers(0, 256, (32, 32, 3), dtype=np.uint8)
-                    image_module.fromarray(pixels).save(folder / f"{i}.png")
-    before = snapshot(raw)
-    with pytest.raises(ValueError, match="overlaps the raw data"):
-        clean_wheat(raw, raw / "out", tmp_path / "c", tmp_path / "s.csv", workers=2)
-    assert snapshot(raw) == before
