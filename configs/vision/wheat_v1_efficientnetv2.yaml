@@ -22,7 +22,7 @@ train:
   weight_decay: 0.05
   warmup_epochs: 1
   label_smoothing: 0.1
-  early_stopping_patience: 5
+  early_stopping_patience: 8 # the frozen v1 runs used 5; see wheat_vision_v1.yaml
   sampler_power: 0.5 # sqrt inverse class frequency
   augment:
     crop_scale: [0.6, 1.0]
