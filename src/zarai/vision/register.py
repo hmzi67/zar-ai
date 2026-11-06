@@ -72,6 +72,7 @@ def register(cfg, description: str) -> None:
     existing = [v for v in client.search_model_versions(f"name = '{name}'") if v.run_id == run_id]
     if existing:
         version = existing[0]
+        sync_descriptions(client, name, version.version, description)
     else:
         version = client.create_model_version(
             name, source=f"runs:/{run_id}/onnx", run_id=run_id, tags=tags, description=description
@@ -83,6 +84,14 @@ def register(cfg, description: str) -> None:
     if registered != digest:
         raise ValueError("the registered ONNX file does not match the run's")
     log.info("%s@%s is version %s: seed %s, run %s", name, alias, found.version, seed, run_id)
+
+
+def sync_descriptions(client, name: str, version: str, description: str) -> None:
+    """Make the model's and the version's descriptions match the config."""
+    if client.get_registered_model(name).description != description:
+        client.update_registered_model(name, description=description)
+    if client.get_model_version(name, version).description != description:
+        client.update_model_version(name, version, description=description)
 
 
 def source_tolerance(source) -> float:
