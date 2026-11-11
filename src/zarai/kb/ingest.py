@@ -6,6 +6,7 @@ from pathlib import Path
 from zarai.common.config import parse_config
 from zarai.common.io import read_csv
 from zarai.common.logging import get_logger
+from zarai.kb.ocr import needs_ocr, ocr_pdf
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ def main() -> None:
     rows = read_csv(cfg.register)
     for row in rows:
         text = extract_text(row["file_path"])
+        if Path(row["file_path"]).suffix.lower() == ".pdf" and needs_ocr(
+            text, row.get("language", "")
+        ):
+            log.info("%s: text layer unusable, running OCR", row["source_id"])
+            text = ocr_pdf(row["file_path"])
         if not text.strip():
             log.warning("%s: no text extracted, probably a scan that needs OCR", row["source_id"])
             continue
