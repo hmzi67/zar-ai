@@ -17,7 +17,7 @@ ZarAI is a multilingual (Urdu, Roman Urdu, English) RAG chatbot and crop disease
 |---|---|---|
 | Hamza (lead) | LLM/RAG, fusion, papers | `src/zarai/nlp/`, `src/zarai/fusion/`, `src/zarai/eval/`, `paper/`, `experiments/` |
 | RA-2 | Field images, vision model, farmer pilot | `src/zarai/vision/`, `data/raw/images_*`, `eval/pilot/`, `docs/field_collection_protocol.md` |
-| RA-3 | Knowledge base, Q&A dataset, web app | `src/zarai/kb/`, `kb/`, `data/raw/qa/`, `app/` |
+| (RA-3) Roshane Shahbaz | Knowledge base, Q&A dataset, web app | `src/zarai/kb/`, `kb/`, `data/raw/qa/`, `app/` |
 
 ## Setup
 
