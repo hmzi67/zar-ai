@@ -53,13 +53,21 @@ def _ocr_image(image, lang: str, psm: int) -> PageResult:
 
     config = f"--psm {psm}"
     text = pytesseract.image_to_string(image, lang=lang, config=config)
-    data = pytesseract.image_to_data(image, lang=lang, config=config, output_type=pytesseract.Output.DICT)
-    confs = [float(c) for c, w in zip(data["conf"], data["text"]) if w.strip() and float(c) >= 0]
+    data = pytesseract.image_to_data(
+        image, lang=lang, config=config, output_type=pytesseract.Output.DICT
+    )
+    confs = [
+        float(c)
+        for c, w in zip(data["conf"], data["text"], strict=True)
+        if w.strip() and float(c) >= 0
+    ]
     mean_conf = sum(confs) / len(confs) if confs else -1.0
     return PageResult(page=0, text=text.strip(), mean_conf=mean_conf, n_words=len(confs))
 
 
-def ocr_pdf_pages(path: str | Path, lang: str = "urd+eng", dpi: int = 300, psm: int = 4) -> list[PageResult]:
+def ocr_pdf_pages(
+    path: str | Path, lang: str = "urd+eng", dpi: int = 300, psm: int = 4
+) -> list[PageResult]:
     """OCR every page. psm 4 (single column of variable sizes) suits the tables in AARI plans."""
     from pdf2image import convert_from_path
 
@@ -84,11 +92,21 @@ def write_report(pages: list[PageResult], path: str | Path) -> None:
         writer = csv.writer(f)
         writer.writerow(["page", "mean_conf", "n_words", "urdu_share", "n_chars"])
         for p in pages:
-            writer.writerow([p.page, round(p.mean_conf, 1), p.n_words, round(urdu_share(p.text), 3), len(p.text)])
+            writer.writerow(
+                [
+                    p.page,
+                    round(p.mean_conf, 1),
+                    p.n_words,
+                    round(urdu_share(p.text), 3),
+                    len(p.text),
+                ]
+            )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--input", required=True, help="PDF file")
     parser.add_argument("--out", required=True, help="output .txt")
     parser.add_argument("--report", help="optional per-page CSV report")
@@ -106,8 +124,13 @@ def main() -> None:
         write_report(pages, args.report)
     confs = [p.mean_conf for p in pages if p.mean_conf >= 0]
     low = [p.page for p in pages if 0 <= p.mean_conf < 60]
-    log.info("%s: %d pages, mean confidence %.1f, pages under 60: %s", args.input, len(pages),
-             sum(confs) / len(confs) if confs else -1, low or "none")
+    log.info(
+        "%s: %d pages, mean confidence %.1f, pages under 60: %s",
+        args.input,
+        len(pages),
+        sum(confs) / len(confs) if confs else -1,
+        low or "none",
+    )
 
 
 if __name__ == "__main__":

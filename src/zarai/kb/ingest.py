@@ -38,7 +38,9 @@ def main() -> None:
     rows = read_csv(cfg.register)
     for row in rows:
         text = extract_text(row["file_path"])
-        if Path(row["file_path"]).suffix.lower() == ".pdf" and needs_ocr(text, row.get("language", "")):
+        if Path(row["file_path"]).suffix.lower() == ".pdf" and needs_ocr(
+            text, row.get("language", "")
+        ):
             log.info("%s: text layer unusable, running OCR", row["source_id"])
             text = ocr_pdf(row["file_path"])
         if not text.strip():
