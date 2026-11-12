@@ -13,7 +13,11 @@ frozen:
     "1": 1ec14ad01b6046f28aca8625798a00f6
     "2": 1daa65830603479bbed9cc5c67c9f30d
   description: >-
-    Wheat vision v1, EfficientNetV2-S, 15 classes. A candidate, not cleared for field use. Trained
-    on wheat_v1, which includes a single watermarked source. Models trained without that source
-    reach only 0.33 mildew and 0.79 fusarium_head_blight recall on it, so test scores for those
-    classes overstate performance on unseen sources. See experiments/wheat_v1_leave_source_out.md.
+    Wheat vision v1, EfficientNetV2-S, 15 classes. A candidate, not cleared for field use.
+    Unseen source: models trained without wheat_v1's watermarked source reach only 0.33 mildew and
+    0.79 fusarium_head_blight recall on it (experiments/wheat_v1_leave_source_out.md). External
+    datasets, mean of 4 seeds (experiments/wheat_v1_cross_domain.md): stripe rust is almost never
+    recognised (0 of 208 Ethiopia images, NWRD tile recall 0.01) and leaf rust recall is 0.34 on
+    IARI and 0.25 on CGIAR. These errors are confident, so abstention doesn't catch them. Don't use
+    it for stripe rust or leaf rust. Known data issue: 111 stripe rust images in wheat_v1 are
+    labelled brown_rust, pending review by someone with disease expertise.

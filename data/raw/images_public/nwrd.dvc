@@ -1,0 +1,6 @@
+outs:
+- md5: 848fd1828a70f81e367242e172095c3e.dir
+  size: 612841383
+  nfiles: 200
+  hash: md5
+  path: nwrd

@@ -1,0 +1,98 @@
+# wheat_v2 training. Run through train.py, which sets model.backbone/mode, train.augment.profile,
+# data.protocol/fold and seed from its flags, then resolves batch size and LR from `backbones`.
+seed: 42
+experiment: wheat_v2
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment: wheat_v2
+data:
+  splits_csv: ${paths.splits}/wheat_v2.csv
+  classes: [black_rust, brown_rust, healthy, septoria, yellow_rust]
+  test_only_sources: [nwrd] # never trained on, selected on, calibrated on or early-stopped on
+  protocol: loso # pooled (development only) or loso
+  fold: mendeley_wheat_leaf_ethiopia # held-out source for loso; any unique part of its name
+  background: none # none, or remove (black out everything outside the leaf mask)
+  image_size: 224
+  eval_resize: 256
+  num_workers: 12
+model:
+  backbone: efficientnetv2_s
+  mode: full # linear, lora or full
+  layer_decay: 0.75 # full fine-tuning of ViTs only
+  lora: { rank: 16, alpha: 16, dropout: 0.0 } # on every block's attention qkv and proj
+# Each backbone's weights are pinned to one Hugging Face commit of the timm repo.
+# micro_batch is per step; gradients accumulate to train.effective_batch_size.
+backbones:
+  efficientnetv2_s: # the wheat_v1 baseline
+    timm: tf_efficientnetv2_s.in21k_ft_in1k
+    hf_revision: ea9abc143ea2b9d8e1ec1de277bce02149b9cf0e
+    vit: false
+    modes: [linear, full] # no attention layers, so no LoRA
+    micro_batch: { linear: 64, full: 64 }
+    lr: { full: 3.0e-4 } # wheat_v1's
+  dinov2_vit_s14:
+    timm: vit_small_patch14_dinov2.lvd142m
+    hf_revision: 4610ca143709d58a633b6397a74412c2c3842454
+    vit: true
+    modes: [linear, lora, full]
+    micro_batch: { linear: 64, lora: 64, full: 64 }
+  dinov2_vit_b14:
+    timm: vit_base_patch14_dinov2.lvd142m
+    hf_revision: 4685c99dabffe5affac90bd99dbffd25801ae58d
+    vit: true
+    modes: [linear, lora, full]
+    micro_batch: { linear: 64, lora: 64, full: 32 }
+  dinov2_vit_l14:
+    timm: vit_large_patch14_dinov2.lvd142m
+    hf_revision: 4741e1cafbf45415e77074bb0cb42dba76c8684a
+    vit: true
+    modes: [linear, lora, full]
+    micro_batch: { linear: 64, lora: 32, full: 16 }
+    grad_checkpointing: true # needed to fit full fine-tuning in 20 GB
+  siglip2_vit_b16:
+    timm: vit_base_patch16_siglip_224.v2_webli
+    hf_revision: 4c3661e5ac879a276ddc5ddc6d3f0ecc78fd5d82
+    vit: true
+    modes: [linear, lora, full]
+    micro_batch: { linear: 64, lora: 64, full: 32 }
+train:
+  device: cuda
+  epochs: 30
+  min_epochs: 10
+  early_stopping_patience: 8 # on val macro-F1
+  effective_batch_size: 64
+  eval_batch_size: 128
+  lr_by_mode: { linear: 1.0e-3, lora: 5.0e-4, full: 1.0e-4 } # a backbone's own `lr` wins
+  weight_decay: 0.05
+  warmup_epochs: 1
+  label_smoothing: 0.1
+  sampler_power: 0.5 # sqrt inverse class frequency
+  log_checkpoint: true # full ViT-L checkpoints are about 1.2 GB each
+  augment:
+    profile: basic
+    basic: # wheat_v1's augmentation
+      crop_scale: [0.6, 1.0]
+      randaugment_ops: 2
+      randaugment_magnitude: 9
+      jitter: 0.1
+      jitter_hue: 0.02
+    strong:
+      crop_scale: [0.4, 1.0]
+      jitter: 0.4
+      jitter_hue: 0.05 # ±18°: larger shifts start to turn yellow rust into other colours
+      grayscale_p: 0.1
+      blur_p: 0.2
+      blur_sigma: [0.1, 2.0]
+      jpeg_p: 0.3
+      jpeg_quality: [30, 90]
+      replace_background_p: 0.3 # uses the leaf mask; skipped where the mask found no plant
+eval:
+  n_bootstrap: 1000
+calibration:
+  target_coverage: 0.8
+# The full grid, for the results tables. Combinations a backbone doesn't support are skipped.
+grid:
+  backbones: [efficientnetv2_s, dinov2_vit_s14, dinov2_vit_b14, dinov2_vit_l14, siglip2_vit_b16]
+  modes: [linear, lora, full]
+  augs: [basic, strong]
+  seeds: [42, 0, 1]

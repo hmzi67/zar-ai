@@ -123,3 +123,66 @@ def classification_summary(logits: np.ndarray, labels: np.ndarray, class_names: 
         "ece": expected_calibration_error(probs, labels),
         "coverage_accuracy": coverage_accuracy_curve(probs, labels),
     }
+
+
+def _class_scores(cm: np.ndarray, classes: list[int]) -> tuple[float, float, np.ndarray]:
+    """(macro-F1 over classes with support, accuracy, recall per class) from a confusion matrix."""
+    tp = np.diag(cm).astype(float)
+    support, predicted = cm.sum(axis=1), cm.sum(axis=0)
+    present = [c for c in classes if support[c] > 0]
+    f1 = 2 * tp[present] / (support[present] + predicted[present])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        recall = np.where(support[classes] > 0, tp[classes] / support[classes], np.nan)
+    return float(f1.mean()) if present else float("nan"), float(tp.sum() / cm.sum()), recall
+
+
+def bootstrap_class_scores(
+    labels: np.ndarray,
+    preds: np.ndarray,
+    classes: list[int],
+    n_classes: int,
+    n_resamples: int = 1000,
+    seed: int = 42,
+) -> dict[str, dict[str, float]]:
+    """Macro-F1 over `classes`, accuracy and per-class recall, each with a percentile 95% CI.
+
+    Predictions of any of n_classes count, so predicting a class outside `classes` is an error.
+    A class absent from a resample is left out of that resample's macro-F1, as in bootstrap_cis.
+    Keys: macro_f1, accuracy, recall_<class index>.
+    """
+    labels, preds = np.asarray(labels), np.asarray(preds)
+
+    def confusion(index: np.ndarray) -> np.ndarray:
+        cells = labels[index] * n_classes + preds[index]
+        return np.bincount(cells, minlength=n_classes * n_classes).reshape(n_classes, n_classes)
+
+    every = np.arange(len(labels))
+    f1, accuracy, recall = _class_scores(confusion(every), classes)
+    rng = np.random.default_rng(seed)
+    samples = [
+        _class_scores(confusion(rng.integers(0, len(labels), len(labels))), classes)
+        for _ in range(n_resamples)
+    ]
+
+    def interval(value: float, values: np.ndarray) -> dict[str, float]:
+        return {
+            "value": value,
+            "low": float(np.nanpercentile(values, 2.5)),
+            "high": float(np.nanpercentile(values, 97.5)),
+        }
+
+    scores = {
+        "macro_f1": interval(f1, np.array([s[0] for s in samples])),
+        "accuracy": interval(accuracy, np.array([s[1] for s in samples])),
+    }
+    recalls = np.array([s[2] for s in samples])
+    for k, c in enumerate(classes):
+        if not np.isnan(recall[k]):
+            scores[f"recall_{c}"] = interval(float(recall[k]), recalls[:, k])
+    return scores
+
+
+def confidently_wrong_share(probs: np.ndarray, labels: np.ndarray, threshold: float) -> float:
+    """Share of all samples that are wrong with confidence at or above the abstention threshold."""
+    wrong = probs.argmax(axis=1) != labels
+    return float((wrong & (probs.max(axis=1) >= threshold)).mean())

@@ -10,3 +10,27 @@ stages:
       - data/interim/label_conflicts
       - data/processed/wheat_v1
       - data/splits/wheat_v1.csv
+  wheat_v2:
+    # Rebuilds wheat_v2 from five sources. The review CSV persists across runs, so an expert's
+    # final_label column is never deleted; after editing it, run `dvc repro --force wheat_v2`.
+    cmd: .venv/bin/python -m zarai.data.wheat_v2 --config configs/data/wheat_v2.yaml
+    deps:
+      - configs/data/wheat_v2.yaml
+      - data/splits/wheat_v1.csv
+      - data/raw/images_public/wheat_plant_diseases
+      - data/raw/images_public/mendeley_wheat_leaf_ethiopia
+      - data/raw/images_public/mendeley_iari_leaf_rust
+      - data/raw/images_public/cgiar_wheat_rust
+      - data/raw/images_public/nwrd
+      - src/zarai/data/wheat_v2.py
+      - src/zarai/data/leaf_mask.py
+      - src/zarai/data/clean_wheat.py
+      - src/zarai/vision/eval_external.py
+      - src/zarai/vision/models.py
+    outs:
+      - data/processed/wheat_v2
+      - data/splits/wheat_v2.csv
+      - data/interim/wheat_v2
+      - data/interim/label_review_v2.csv:
+          persist: true
+          cache: false

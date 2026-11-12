@@ -124,3 +124,73 @@ source .venv/bin/activate    # deactivate with: deactivate
 ## Optional: `make`
 
 The `Makefile` targets need `make`. If it's missing, install it with `sudo apt install make`, or call the tools directly as shown above.
+
+## wheat_v2: `dataloader.py` and `train.py`
+
+Two thin scripts at the repo root; all the logic is in `src/zarai`. Run them with `.venv/bin/python` (plain `python3` is the system Python, which has none of the packages), or after `source .venv/bin/activate`.
+
+### `dataloader.py`: build the dataset and check the loaders
+
+```bash
+.venv/bin/python dataloader.py --protocol loso                    # build if needed, check every fold
+.venv/bin/python dataloader.py --protocol loso --fold cgiar --aug strong --skip-preprocess
+```
+
+1. Runs `dvc repro wheat_v2` (`zarai.data.wheat_v2`), which only rebuilds if an input changed. `--skip-preprocess` skips this.
+2. Asserts the leakage checks on `data/splits/wheat_v2.csv`, then again on the rows each loader holds.
+3. Per fold, prints class and source counts per split (train, val, test, nwrd), saves 32-sample grids per split to `data/processed/wheat_v2/samples/` (train augmented, the others with the eval transform), and times 200 training batches.
+
+| flag | values | default |
+| --- | --- | --- |
+| `--protocol` | `pooled` (70/15/15, development only) or `loso` | `loso` |
+| `--fold` | a held-out source, or any unique part of its name (`cgiar`, `iari`, `ethiopia`, `kaggle`) | every LOSO fold |
+| `--aug` | `basic` (wheat_v1's) or `strong` | `basic` |
+| `--background` | `none` or `remove` (black out everything outside the leaf mask) | `none` |
+| `--skip-preprocess` | don't run `dvc repro` | off |
+
+The dataset report is `data/processed/wheat_v2/REPORT.md`. Images with conflicting labels are quarantined and listed in `data/interim/label_review_v2.csv`, with contact sheets in `data/interim/wheat_v2/review/`. To apply an expert's labels, fill in `final_label` (a v2 class, or `exclude`), set `apply_label_review: data/interim/label_review_v2.csv` in `configs/data/wheat_v2.yaml`, and run `.venv/bin/dvc repro --force wheat_v2`. DVC never deletes that CSV, and a rebuild keeps its `final_label` values.
+
+### `train.py`: train, evaluate, and update the results
+
+```bash
+.venv/bin/python train.py --dry-run --backbone dinov2_vit_l14 --mode full    # fit check: 1 epoch, 2 batches
+.venv/bin/python train.py --backbone dinov2_vit_b14 --mode lora --aug strong --fold all --seeds 42,0,1
+```
+
+Each (fold, seed) is one MLflow run in the experiment `wheat_v2`, tagged with `fold`, `source`, `backbone`, `mode`, `aug`, `background`, `seed` and `dry_run`. After training, the run fits temperature and the abstention threshold on val, and scores the held-out source and the NWRD tiles: macro-F1 and per-class recall with bootstrap 95% CIs, ECE, the coverage-accuracy curve and the share of confidently wrong predictions. Finally it prints the run IDs and scores, and rebuilds `experiments/wheat_v2_results.md`, where dry runs are ignored.
+
+| flag | values | default (from `configs/vision/wheat_v2.yaml`) |
+| --- | --- | --- |
+| `--config` | YAML | `configs/vision/wheat_v2.yaml` |
+| `--backbone` | `efficientnetv2_s`, `dinov2_vit_s14`, `dinov2_vit_b14`, `dinov2_vit_l14`, `siglip2_vit_b16` | `efficientnetv2_s` |
+| `--mode` | `linear`, `lora` (ViTs only), `full` | `full` |
+| `--aug` | `basic`, `strong` | `basic` |
+| `--protocol` | `pooled`, `loso` | `loso` |
+| `--fold` | a held-out source, a unique part of one, or `all` | `mendeley_wheat_leaf_ethiopia` |
+| `--seeds` | comma-separated | `42` |
+| `--background` | `none`, `remove` | `none` |
+| `--dry-run` | 1 epoch of 2 optimizer steps, evaluated on 2 batches; tagged `dry_run=true` | off |
+| `--no-results` | don't rebuild the results file | off |
+
+Any `key=value` argument overrides the config, and wins over `--dry-run`, for example `train.epochs=5`.
+
+### `make` targets and monitoring
+
+```bash
+make data ARGS="--protocol loso --skip-preprocess"
+make train ARGS="--backbone dinov2_vit_b14 --mode lora --fold all --seeds 42,0,1"
+make results                                   # rebuild experiments/wheat_v2_results.md only
+MLFLOW_ALLOW_FILE_STORE=true .venv/bin/mlflow ui --backend-store-uri ./mlruns --port 5000   # http://127.0.0.1:5000
+```
+
+MLflow 3 refuses a local `./mlruns` store unless `MLFLOW_ALLOW_FILE_STORE=true` is set; the training code sets it itself. In the UI, filter with `tags.dry_run = 'false'`, and compare runs by `tags.fold`, `tags.backbone`, `tags.mode` and `tags.aug`.
+
+### Training the whole grid: `scripts/run_wheat_v2_grid.sh`
+
+```bash
+tmux new -s grid                              # so closing the terminal doesn't stop it
+bash scripts/run_wheat_v2_grid.sh             # first grid: 9 configurations x 4 folds x 3 seeds
+bash scripts/run_wheat_v2_grid.sh full        # all 28 configurations (first-grid runs are skipped)
+```
+
+It checks the dataset and loaders first, then trains each configuration on every fold with `--skip-done`. Rerunning the same command after a crash only runs what's missing. One failing configuration doesn't stop the others. Per-configuration logs go to `experiments/runs/grid_logs/`, and the results table is rebuilt at the end. `SEEDS=42` limits it to one seed, and extra `key=value` arguments go to every run. `make grid` (or `make grid GRID=full`) does the same.

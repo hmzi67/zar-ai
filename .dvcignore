@@ -1,3 +1,6 @@
 # Add patterns of files dvc should ignore, which could improve
 # the performance. Learn more at
 # https://dvc.org/doc/user-guide/dvcignore
+
+# Sample grids written by dataloader.py inside the wheat_v2 output; not part of the dataset.
+data/processed/wheat_v2/samples/

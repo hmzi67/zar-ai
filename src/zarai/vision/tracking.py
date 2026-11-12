@@ -35,19 +35,41 @@ def flatten(values: dict, prefix: str = "") -> dict:
 
 
 def dvc_hashes(splits_csv: str | Path) -> dict[str, str]:
-    """Return the dataset's DVC hashes, failing if the splits CSV has changed since dvc.lock."""
+    """Return the dataset's DVC hashes, failing if the splits CSV has changed since dvc.lock.
+
+    The stage is whichever one outputs the splits CSV. For wheat_v1 (clean_wheat), raw_md5 is the
+    raw dataset's. For a stage with several raw inputs, it is an md5 over their dvc.lock hashes.
+    """
     lock = OmegaConf.to_container(OmegaConf.load(REPO_ROOT / "dvc.lock"))
-    outs = {out["path"]: out["md5"] for out in lock["stages"][DVC_STAGE]["outs"]}
-    raw = OmegaConf.to_container(OmegaConf.load(REPO_ROOT / RAW_DVC_FILE))
     splits_key = Path(splits_csv).as_posix()
-    if splits_key not in outs:
-        raise ValueError(f"{splits_key} is not an output of DVC stage {DVC_STAGE}")
+    stage = next(
+        (
+            name
+            for name, entry in lock["stages"].items()
+            if any(out["path"] == splits_key for out in entry.get("outs", []))
+        ),
+        None,
+    )
+    if stage is None:
+        raise ValueError(f"{splits_key} is not an output of any DVC stage in dvc.lock")
+    outs = {out["path"]: out.get("md5") for out in lock["stages"][stage]["outs"]}
     actual = hashlib.md5((REPO_ROOT / splits_key).read_bytes(), usedforsecurity=False).hexdigest()
     if actual != outs[splits_key]:
         raise ValueError(f"{splits_key} does not match dvc.lock: run dvc repro or dvc checkout")
+    if stage == DVC_STAGE:
+        raw = OmegaConf.to_container(OmegaConf.load(REPO_ROOT / RAW_DVC_FILE))
+        return {
+            "dvc.raw_md5": raw["outs"][0]["md5"],
+            "dvc.processed_md5": outs["data/processed/wheat_v1"],
+            "dvc.splits_md5": outs[splits_key],
+        }
+    deps = {dep["path"]: dep["md5"] for dep in lock["stages"][stage]["deps"]}
+    raw = "".join(f"{path} {deps[path]}\n" for path in sorted(deps) if path.startswith("data/raw/"))
+    processed = next(path for path in outs if path.startswith("data/processed/"))
     return {
-        "dvc.raw_md5": raw["outs"][0]["md5"],
-        "dvc.processed_md5": outs["data/processed/wheat_v1"],
+        "dvc.stage": stage,
+        "dvc.raw_md5": hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest(),
+        "dvc.processed_md5": outs[processed],
         "dvc.splits_md5": outs[splits_key],
     }
 
@@ -91,7 +113,7 @@ def log_run_context(cfg: DictConfig, run_dir: Path) -> None:
             "git_commit": git_commit(),
             "git_dirty": str(bool(status.strip())).lower(),
             "seed": str(cfg.seed),
-            "model_name": cfg.model.name,
+            "model_name": cfg.model.get("name") or cfg.backbones[cfg.model.backbone].timm,
         }
     )
     OmegaConf.save(cfg, run_dir / "resolved_config.yaml", resolve=True)
@@ -104,7 +126,8 @@ def log_run_context(cfg: DictConfig, run_dir: Path) -> None:
         # `git diff` leaves out new files, so they are logged as they are.
         for path in _git("ls-files", "--others", "--exclude-standard").splitlines():
             parent = Path(path).parent.as_posix()
-            mlflow.log_artifact(str(REPO_ROOT / path), f"git/untracked/{parent}")
+            destination = "git/untracked" if parent == "." else f"git/untracked/{parent}"
+            mlflow.log_artifact(str(REPO_ROOT / path), destination)
 
 
 def artifact_path(run_id: str, path: str) -> str:
