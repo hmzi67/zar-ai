@@ -28,8 +28,13 @@ def _spatial(model, activations):
     return tokens.reshape(tokens.shape[0], side, side, -1).permute(0, 3, 1, 2)
 
 
-def grad_cam(model, images, device: str = "cuda") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return (cams scaled 0-1 at input size, predicted classes, probabilities of those classes)."""
+def grad_cam(
+    model, images, device: str = "cuda", target: int | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return (cams scaled 0-1 at input size, predicted classes, probabilities of those classes).
+
+    The CAM explains the predicted class, or class `target` for every image when it is given.
+    """
     import torch
 
     model.eval()
@@ -45,8 +50,9 @@ def grad_cam(model, images, device: str = "cuda") -> tuple[np.ndarray, np.ndarra
         inputs = images.to(device).requires_grad_(True)
         logits = model(inputs)
         preds = logits.argmax(dim=1)
+        explained = preds if target is None else torch.full_like(preds, target)
         model.zero_grad(set_to_none=True)
-        logits.gather(1, preds[:, None]).sum().backward()
+        logits.gather(1, explained[:, None]).sum().backward()
     finally:
         handle.remove()
 

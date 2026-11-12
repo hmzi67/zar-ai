@@ -1,7 +1,8 @@
-"""Serve a trained wheat_v2 run: image bytes in, calibrated top-k classes and an abstain flag out.
+"""Serve a trained wheat_v2 run: image bytes in, calibrated top-k classes and a confidence band out.
 
-The checkpoint, temperature and abstention threshold all come from one MLflow run, so what is
-served is exactly what was evaluated. Uploaded photos get the same preprocessing as the training
+The checkpoint and temperature come from one MLflow run, so what is served is what was evaluated.
+A CLIP plant filter runs first, and non-plant photos never reach the disease model. The calibrated
+top probability then picks a band: confident, likely or unsure (configs/vision/serving.yaml). Uploaded photos get the same preprocessing as the training
 images (upright RGB, downscaled to the long side, saved as JPEG) and then the run's eval transform.
 """
 
@@ -57,11 +58,26 @@ def prepare_image(data: bytes, long_side: int, jpeg_quality: int):
         return saved.convert("RGB")
 
 
-def rank(probs: np.ndarray, classes: list[str], threshold: float, top_k: int) -> dict:
-    """{"top": [{"label", "prob"}] best first, "abstain": top prob below the threshold}."""
+BANDS = ("confident", "likely", "unsure")
+
+
+def band_of(prob: float, bands) -> str:
+    """confident (>= bands.answer), likely (>= bands.likely) or unsure."""
+    if prob >= bands["answer"]:
+        return "confident"
+    return "likely" if prob >= bands["likely"] else "unsure"
+
+
+def rank(probs: np.ndarray, classes: list[str], bands, top_k: int) -> dict:
+    """{"top": [{"label", "prob"}] best first, "band", "abstain": band is unsure}."""
     order = np.argsort(-probs)[:top_k]
     top = [{"label": classes[i], "prob": round(float(probs[i]), 4)} for i in order]
-    return {"top": top, "abstain": bool(probs[order[0]] < threshold)}
+    band = band_of(float(probs[order[0]]), bands)
+    return {"top": top, "band": band, "abstain": band == "unsure"}
+
+
+def not_plant(plant_prob: float) -> dict:
+    return {"top": [], "band": "not_plant", "abstain": True, "plant_prob": round(plant_prob, 4)}
 
 
 class WheatClassifier:
@@ -78,9 +94,15 @@ class WheatClassifier:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = cfg.device
-        metrics = mlflow.get_run(cfg.run_id).data.metrics
-        self.temperature = float(metrics["temperature"])
-        self.threshold = float(metrics["abstain_threshold"])
+        self.temperature = float(mlflow.get_run(cfg.run_id).data.metrics["temperature"])
+        self.bands = {"answer": float(cfg.bands.answer), "likely": float(cfg.bands.likely)}
+        if not 0 < self.bands["likely"] <= self.bands["answer"] <= 1:
+            raise ValueError(f"bands need 0 < likely <= answer <= 1, got {self.bands}")
+        self.plant_filter = None
+        if cfg.get("plant_filter") and cfg.plant_filter.enabled:
+            from zarai.vision.plant_filter import PlantFilter
+
+            self.plant_filter = PlantFilter(cfg.plant_filter, self.device)
         self.model, checkpoint, run_cfg = load_run_model(cfg.run_id, self.device)
         self.model.eval()
         self.classes = list(checkpoint["classes"])
@@ -101,6 +123,11 @@ class WheatClassifier:
         from zarai.vision.calibrate import apply_temperature
 
         image = prepare_image(data, self.long_side, self.jpeg_quality)
+        plant_prob = None
+        if self.plant_filter is not None:
+            is_plant, plant_prob = self.plant_filter.check(image)
+            if not is_plant:
+                return not_plant(plant_prob)
         batch = self.transform(image).unsqueeze(0).to(self.device)
         with (
             torch.inference_mode(),
@@ -108,4 +135,7 @@ class WheatClassifier:
         ):
             logits = self.model(batch).float().cpu().numpy()
         probs = apply_temperature(logits, self.temperature)[0]
-        return rank(probs, self.classes, self.threshold, self.top_k)
+        result = rank(probs, self.classes, self.bands, self.top_k)
+        if plant_prob is not None:
+            result["plant_prob"] = round(plant_prob, 4)
+        return result

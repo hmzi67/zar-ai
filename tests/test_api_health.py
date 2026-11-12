@@ -46,10 +46,11 @@ class NoModel:
 
 
 class ToyClassifier:
-    def __init__(self, abstain=False):
+    def __init__(self, band="confident"):
         self.result = {
             "top": [{"label": "yellow_rust", "prob": 0.9}, {"label": "healthy", "prob": 0.1}],
-            "abstain": abstain,
+            "band": band,
+            "abstain": band == "unsure",
         }
 
     def classify(self, image):
@@ -84,9 +85,27 @@ def test_ask_answers_with_the_diagnosis_until_the_kb_exists(pipeline):
 
 
 def test_an_unsure_classifier_still_returns_its_guesses(pipeline):
-    pipeline(classifier=ToyClassifier(abstain=True), retriever=NotReady())
+    pipeline(classifier=ToyClassifier(band="unsure"), retriever=NotReady())
     body = client.post("/ask", data={"question": "kya hai"}, files=IMAGE).json()
-    assert body["status"] == "clarify" and body["vision"]["abstain"] is True
+    assert body["status"] == "clarify" and body["vision"]["band"] == "unsure"
+
+
+def test_a_likely_result_is_answered_with_a_confirming_question(pipeline):
+    pipeline(classifier=ToyClassifier(band="likely"), retriever=NotReady())
+    body = client.post("/ask", data={"question": "What is this?"}, files=IMAGE).json()
+    assert body["status"] == "diagnosis" and body["vision"]["band"] == "likely"
+    assert "probably Yellow (stripe) rust" in body["answer"] and "To confirm:" in body["answer"]
+
+
+def test_a_non_plant_photo_is_turned_away(pipeline):
+    class NotPlant:
+        def classify(self, image):
+            return {"top": [], "band": "not_plant", "abstain": True, "plant_prob": 0.01}
+
+    pipeline(classifier=NotPlant(), retriever=NotReady())
+    body = client.post("/ask", data={"question": "ye kya hai?"}, files=IMAGE).json()
+    assert body["status"] == "not_plant"
+    assert body["answer"] == "Barah-e-karam gandum ke pattay ki tasveer bhejein."
 
 
 def test_an_unreadable_image_is_a_400(pipeline):

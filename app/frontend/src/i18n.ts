@@ -18,6 +18,7 @@ export interface Strings {
   badImage: string;
   modelSaw: string;
   lowConfidence: string;
+  likely: string;
   diseases: Record<string, string>;
 }
 
@@ -34,6 +35,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     badImage: "یہ تصویر کھل نہیں سکی، کوئی اور تصویر لگائیں۔",
     modelSaw: "تصویر کے ماڈل کے امکانات",
     lowConfidence: "ماڈل کو یقین نہیں",
+    likely: "غالباً، تصدیق کریں",
     diseases: {
       healthy: "صحت مند",
       yellow_rust: "پیلی کنگی",
@@ -54,6 +56,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     badImage: "Yeh tasveer khul nahi saki, koi aur tasveer lagayein.",
     modelSaw: "Tasveer ke model ke imkanaat",
     lowConfidence: "Model ko yaqeen nahi",
+    likely: "shayad, tasdeeq karein",
     diseases: {
       healthy: "Sehatmand",
       yellow_rust: "Peeli kungi",
@@ -74,6 +77,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     badImage: "That photo could not be read, please attach another.",
     modelSaw: "Image model's top guesses",
     lowConfidence: "the model isn't confident",
+    likely: "likely, please confirm",
     diseases: {
       healthy: "Healthy",
       yellow_rust: "Yellow (stripe) rust",

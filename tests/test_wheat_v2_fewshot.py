@@ -80,3 +80,18 @@ def test_source_counts_and_single_source_classes():
     assert by_class["yellow_rust"] == []  # test-only data isn't a training source
     train = fold_training(rows, "b", classes)
     assert train["septoria"] == Counter() and train["black_rust"] == Counter({"a": 1})
+
+
+def test_control_tile_offsets_and_mask_geometry():
+    import numpy as np
+    import pytest
+
+    pytest.importorskip("PIL")
+    from zarai.vision.fewshot_controls import mask_in_model_space, tile_offsets
+
+    assert tile_offsets({"original_path": "x/nwrd_tiles/117_384_1920.png"}) == (384, 1920)
+    mask = np.zeros((384, 384), bool)
+    mask[:, :192] = True  # left half is rust
+    out = mask_in_model_space(mask, eval_resize=256, image_size=224)
+    assert out.shape == (224, 224)
+    assert out[:, :100].all() and not out[:, 124:].any()  # the centre crop keeps the halves

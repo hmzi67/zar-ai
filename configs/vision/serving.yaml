@@ -9,7 +9,40 @@ mlflow:
 # experiments/wheat_v2_fewshot_nwrd.md.
 run_id: 59b1519214304ec885ddc26518002a00
 device: auto # cuda when available, else cpu
-top_k: 3
+top_k: 5
+# Confidence bands on the calibrated top probability (the run's temperature is applied first):
+# >= answer: answer; >= likely: answer as "likely" and ask a confirming question; below: ask for
+# a clearer photo. See experiments/serving_bands.md for the share and accuracy in each band.
+bands:
+  answer: 0.90
+  likely: 0.60
 # Uploads are prepared like the wheat_v2 training images (configs/data/wheat_v2.yaml).
 long_side: 512
 jpeg_quality: 92
+
+# Non-plant photos are turned away before the disease model ("Please send a photo of a wheat
+# leaf"). CLIP zero-shot; min_plant_prob is set by `python -m zarai.vision.plant_filter`, which
+# writes experiments/plant_filter.md. It answers "is this a plant?", not "is this wheat?".
+plant_filter:
+  enabled: true
+  model: openai/clip-vit-large-patch14
+  revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+  min_plant_prob: 0.7940 # keeps 99.5% of wheat_v2 val; see experiments/plant_filter.md
+  plant_prompts:
+    - a photo of a wheat leaf
+    - a close-up photo of a green plant leaf
+    - a photo of a diseased leaf with rust or spots
+    - a photo of a wheat plant in a field
+    - a photo of crops growing in a field
+    - a photo of grass or cereal leaves
+  other_prompts:
+    - a photo of a person
+    - a photo of an animal
+    - a photo of a building
+    - a photo of a vehicle
+    - a photo of food on a plate
+    - a photo of an object or a machine
+    - a screenshot or a document
+    - a photo of a musical instrument
+    - a photo of the sky
+    - a photo of a room indoors
