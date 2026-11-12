@@ -14,8 +14,32 @@ Setup: KB v2 is 42 chunks from `src_0001`, `src_0010` and `src_0011` in `kb/sour
 | BGE-M3 dense | 0.732 | 0.476 | 0.646 | 0.503 | 0.283 | 0.431 | `e3_bge_m3_kb_v2` |
 | RRF (BM25 + BGE-M3, k=60) | 0.780 | 0.341 | 0.415 | 0.557 | 0.196 | 0.266 | `e3_hybrid_kb_v2` |
 | Routed (ur: BM25, else BGE-M3) | 0.780 | 0.476 | 0.646 | 0.482 | 0.283 | 0.431 | `e3_hybrid_kb_v2` |
+| Routed v2 (ur: RRF, else BGE-M3) | 0.780 | 0.476 | 0.646 | 0.557 | 0.283 | 0.431 | `e3_rerank_chunks_kb_v2` |
+| Routed v2 + reranker (`bge-reranker-v2-m3`, top 20) | 0.902 | 0.646 | 0.817 | 0.682 | 0.518 | 0.651 | `e3_rerank_chunks_kb_v2` |
 
 The script router sent 0 of 246 queries to the wrong retriever.
+
+## Reranker and chunk size
+
+The reranker re-scores the top 20 passages from Routed v2. Recall@1 rises from 0.378 to 0.537 (ur), 0.146 to 0.402 (ur-Latn) and 0.268 to 0.512 (en).
+
+Smaller chunks (200-word windows, 40-word overlap, 112 chunks) did not help. With the reranker, Recall@5 was 0.829 (ur), 0.549 (ur-Latn) and 0.768 (en), below the current chunks in every language, so the chunk size stays as it is.
+
+## Recall@5 by topic
+
+Routed v2 without the reranker. Each topic has only 6 to 21 facts, so these are rough.
+
+| Topic | Facts | ur | ur-Latn | en |
+|---|---|---|---|---|
+| disease | 17 | 0.588 | 0.294 | 0.647 |
+| fertiliser | 15 | 0.800 | 0.467 | 0.600 |
+| harvest_storage | 6 | 0.833 | 0.167 | 0.500 |
+| irrigation | 10 | 1.000 | 0.300 | 0.900 |
+| pest | 7 | 0.857 | 0.571 | 0.714 |
+| sowing_varieties | 21 | 0.714 | 0.667 | 0.571 |
+| weed | 6 | 1.000 | 0.833 | 0.667 |
+
+Five farmer scenarios (late sowing, rust, irrigation, aphids, stubble burning) were checked in each language: Urdu found the right passage in 4 of 5, English in 2 of 5 and Roman Urdu in 1 of 5. Run: `e3_topics_scenarios_kb_v2`.
 
 ## Roman Urdu to Urdu script before retrieval
 
@@ -38,5 +62,7 @@ Run: `e3_translit_kb_v2`. Some conversions are poor (some questions come back un
 | `e3_bge_m3_kb_v2` | Kaggle notebook `BGE-M3 benchmark` | `e3_bge_m3_kb_v2_metrics.json` |
 | `e3_hybrid_kb_v2` | Kaggle notebook `zarai-e3-hybrid-retrieval` | `e3_hybrid_kb_v2_metrics.json` |
 | `e3_translit_kb_v2` | Kaggle notebook `zarai-translit-rag-demo` | `e3_translit_rag_demo.json` |
+| `e3_rerank_chunks_kb_v2` | Kaggle notebook `zarai-e3-rerank-chunks` | `e3_rerank_chunks_kb_v2_metrics.json` |
+| `e3_topics_scenarios_kb_v2` | Kaggle notebook `zarai-e3-rerank-chunks` | `e3_topics_scenarios_kb_v2.json` |
 
 Run outputs are gitignored; copies are kept by RA-3 and can be shared on request.
