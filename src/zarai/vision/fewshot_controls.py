@@ -280,7 +280,25 @@ def best_loso_run(training_cfg, fold: str, backbone: str, mode: str, aug: str):
     return max(runs, key=lambda r: r.data.metrics["best_val_macro_f1"])
 
 
-def run_controls(cfg, log) -> None:
+def default_adapt(model, env, kind, k, index, drawn):
+    """The few-shot adaptation from zarai.vision.fewshot_nwrd, unchanged."""
+    adapt(
+        model,
+        env["few"],
+        env["run_cfg"],
+        drawn,
+        env["classes"],
+        env["mean"],
+        env["std"],
+        env["device"],
+        seed=1000 * k + index,
+    )
+    return model
+
+
+def run_controls(cfg, log, variants=None) -> None:
+    """variants: [(name, hook)], hook(model, env, kind, k, index, drawn) -> adapted model. The
+    default is the plain few-shot adaptation, logged as variant "baseline". k = 0 runs once."""
     import mlflow
     import torch
     from omegaconf import OmegaConf
@@ -324,6 +342,7 @@ def run_controls(cfg, log) -> None:
             training_cfg, cfg.controls.transfer_fold, m.backbone, m.mode, m.aug
         ),
     }
+    variants = variants or [("baseline", default_adapt)]
     best = None
     for kind, source in sources.items():
         model, checkpoint, run_cfg = load_run_model(source.info.run_id, device)
@@ -357,74 +376,90 @@ def run_controls(cfg, log) -> None:
             loaders["ethiopia"] = loader(RowsDataset(ethiopia, classes, transform))
             run_sets = {**sets, "adapt_healthy": fold_healthy}
         log.info("%s: run %s (seed %s)", kind, source.info.run_id, source.data.tags["seed"])
-        for k in cfg.ks:
-            for index in range(cfg.draws if k else 1):
-                backbones.load_state(model, base_state, run_cfg.model.mode)
-                drawn = []
-                if k:
-                    drawn = draw(sets if kind == "pooled" else run_sets, k, index)
-                    adapt(
-                        model,
-                        few,
-                        run_cfg,
-                        drawn,
-                        classes,
-                        mean,
-                        std,
-                        device,
-                        seed=1000 * k + index,
-                    )
-                if kind == "pooled":
-                    used = {r["path"] for r in drawn}
-                    rest = [r for r in sets["adapt_yellow"] if r["path"] not in used]
-                    loaders["adapt_rest"] = loader(RowsDataset(rest, classes, transform))
-                    metrics = score_pooled(model, loaders, model_masks, classes, device)
-                else:
-                    metrics = score_transfer(model, loaders, classes, device)
-                with mlflow.start_run(run_name=f"{kind}_k{k}_d{index}"):
-                    mlflow.set_tags(
-                        {
-                            "kind": kind,
-                            "model": f"{m.backbone}/{m.mode}/{m.aug}",
-                            "k": str(k),
-                            "draw": str(index),
-                            "source_run_id": source.info.run_id,
-                            "source_seed": source.data.tags["seed"],
-                        }
-                    )
-                    mlflow.log_params(
-                        {
-                            "dvc.splits_md5": splits_md5,
-                            **{
-                                f"controls.{key}": str(v)
-                                for key, v in OmegaConf.to_container(c).items()
-                            },
-                        }
-                    )
-                    mlflow.log_metrics(metrics)
-                    run_id = mlflow.active_run().info.run_id
-                log.info(
-                    "%s k=%d draw %d: %s",
-                    kind,
-                    k,
-                    index,
-                    {a: round(b, 3) for a, b in metrics.items()},
+        env = {
+            "few": few,
+            "run_cfg": run_cfg,
+            "classes": classes,
+            "mean": mean,
+            "std": std,
+            "device": device,
+            "rows": rows,
+            "train_column": "split_pooled" if kind == "pooled" else fold_col,
+        }
+        runs = [
+            (name, hook, k, index)
+            for position, (name, hook) in enumerate(variants)
+            for k in cfg.ks
+            if k or position == 0
+            for index in range(cfg.draws if k else 1)
+        ]
+        for variant, hook, k, index in runs:
+            backbones.load_state(model, base_state, run_cfg.model.mode)
+            for param in model.parameters():
+                param.requires_grad = True
+            scored = model
+            drawn = []
+            if k:
+                drawn = draw(sets if kind == "pooled" else run_sets, k, index)
+                scored = hook(model, env, kind, k, index, drawn)
+            if kind == "pooled":
+                used = {r["path"] for r in drawn}
+                rest = [r for r in sets["adapt_yellow"] if r["path"] not in used]
+                loaders["adapt_rest"] = loader(RowsDataset(rest, classes, transform))
+                metrics = score_pooled(scored, loaders, model_masks, classes, device)
+            else:
+                metrics = score_transfer(scored, loaders, classes, device)
+            with mlflow.start_run(run_name=f"{variant}_{kind}_k{k}_d{index}"):
+                mlflow.set_tags(
+                    {
+                        "kind": kind,
+                        "variant": variant if k else "none",
+                        "model": f"{m.backbone}/{m.mode}/{m.aug}",
+                        "k": str(k),
+                        "draw": str(index),
+                        "source_run_id": source.info.run_id,
+                        "source_seed": source.data.tags["seed"],
+                    }
                 )
-                if kind == "pooled" and k in cfg.select.ks:
-                    if best is None or metrics["select_score"] > best["select_score"]:
-                        best = {
-                            "select_score": metrics["select_score"],
-                            "k": k,
-                            "draw": index,
-                            "control_run_id": run_id,
-                            "source_run_id": source.info.run_id,
-                            "state_dict": {
-                                n: t.detach().cpu().clone() for n, t in model.state_dict().items()
-                            },
-                            "checkpoint": checkpoint,
-                        }
+                mlflow.log_params(
+                    {
+                        "dvc.splits_md5": splits_md5,
+                        **{
+                            f"controls.{key}": str(v)
+                            for key, v in OmegaConf.to_container(c).items()
+                        },
+                    }
+                )
+                mlflow.log_metrics(metrics)
+                run_id = mlflow.active_run().info.run_id
+            log.info(
+                "%s %s k=%d draw %d: %s",
+                variant,
+                kind,
+                k,
+                index,
+                {a: round(b, 3) for a, b in metrics.items()},
+            )
+            if kind == "pooled" and k in cfg.select.ks and cfg.output.get("best_checkpoint"):
+                if best is None or metrics["select_score"] > best["select_score"]:
+                    best = {
+                        "select_score": metrics["select_score"],
+                        "k": k,
+                        "draw": index,
+                        "control_run_id": run_id,
+                        "source_run_id": source.info.run_id,
+                        "state_dict": {
+                            n: t.detach().cpu().clone() for n, t in scored.state_dict().items()
+                        },
+                        "checkpoint": checkpoint,
+                    }
+            if scored is not model:
+                del scored
+                torch.cuda.empty_cache()
         del model
         torch.cuda.empty_cache()
+    if best is None:
+        return
     out = Path(cfg.output.best_checkpoint)
     out.parent.mkdir(parents=True, exist_ok=True)
     saved = {
@@ -444,12 +479,13 @@ def run_controls(cfg, log) -> None:
 # Report
 
 
-def load_results(cfg) -> dict[tuple[str, int], list[dict]]:
-    """{(kind, k): [metrics per draw]}, latest run per draw."""
+def load_results(cfg) -> dict[str, dict[tuple[str, int], list[dict]]]:
+    """{variant: {(kind, k): [metrics per draw]}}, latest run per draw. k = 0 runs (no adaptation)
+    are shared by every variant. Runs without a variant tag are "baseline"."""
     import mlflow
 
     set_tracking_uri(cfg.mlflow.tracking_uri)
-    found: dict[tuple[str, int], dict[int, dict]] = defaultdict(dict)
+    found: dict[tuple[str, str, int], dict[int, dict]] = defaultdict(dict)
     if mlflow.get_experiment_by_name(cfg.mlflow.experiment) is None:
         return {}
     runs = mlflow.search_runs(
@@ -460,8 +496,15 @@ def load_results(cfg) -> dict[tuple[str, int], list[dict]]:
     )
     for run in runs:
         t = run.data.tags
-        found[t["kind"], int(t["k"])][int(t["draw"])] = run.data.metrics
-    return {key: list(draws.values()) for key, draws in found.items()}
+        found[t.get("variant", "baseline"), t["kind"], int(t["k"])][
+            int(t["draw"])
+        ] = run.data.metrics
+    shared = {(kind, 0): list(d.values()) for (v, kind, k), d in found.items() if k == 0}
+    by_variant: dict[str, dict] = defaultdict(lambda: dict(shared))
+    for (variant, kind, k), draws in found.items():
+        if k:
+            by_variant[variant][kind, k] = list(draws.values())
+    return dict(by_variant) or {"baseline": shared}
 
 
 def _mean(values) -> float | None:
@@ -682,7 +725,9 @@ def render(cfg, results) -> list[str]:
 def write_report(cfg) -> Path:
     doc = Path(cfg.output.doc)
     text = doc.read_text(encoding="utf-8") if doc.exists() else f"{INTRO}{START}\n{END}\n"
-    doc.write_text(replace_section(text, render(cfg, load_results(cfg))), encoding="utf-8")
+    doc.write_text(
+        replace_section(text, render(cfg, load_results(cfg).get("baseline", {}))), encoding="utf-8"
+    )
     return doc
 
 

@@ -1,0 +1,32 @@
+# Last few-shot attempt: rehearsal adaptation, judged by the same 6 controls. Everything not set
+# here, including the criteria, comes unchanged from controls_config. Run with
+# `python -m zarai.vision.fewshot_rehearsal`.
+controls_config: configs/vision/wheat_v2_fewshot_controls.yaml
+mlflow:
+  experiment: wheat_v2_fewshot_rehearsal
+ks: [0, 25, 50]
+draws: 5
+rehearsal:
+  # Every batch has per_class images of each class. yellow_rust: the k NWRD adapt tiles (the
+  # same draws as before). healthy: the same k healthy images as before. brown_rust, black_rust,
+  # septoria: k each, drawn from the train split (pooled train, or the LOSO fold's train for the
+  # transfer model). Never test.
+  per_class: 8 # batch of 40
+  steps: 60 # the same budget as the earlier adaptation
+  label_smoothing: 0.1
+  lr: { full: 1.0e-5, lora: 5.0e-4 } # full keeps layer-wise LR decay; lora as in training
+  weight_decay: 0.05
+  lesion: { pad_share: 0.25, min_pad: 24, min_side: 96 } # crop around the largest rust region
+# All variants use rehearsal. head_last2: only the head, the final norm and the last 2 blocks
+# train. lora8: rank-8 LoRA on attention qkv/proj on top of the pooled weights, plus the head.
+# l2sp: full fine-tuning with alpha/2 * ||w - w_pooled||^2 on the backbone and no weight decay.
+# lesion: full fine-tuning, with the NWRD tiles cropped to the rust region.
+variants:
+  - { name: rehearsal_full, trainable: full }
+  - { name: rehearsal_head_last2, trainable: head_last2 }
+  - { name: rehearsal_lora8, trainable: lora, lora_rank: 8 }
+  - { name: rehearsal_l2sp, trainable: full, l2sp_alpha: 1.0 }
+  - { name: rehearsal_lesion, trainable: full, lesion_crop: true }
+output:
+  doc: experiments/wheat_v2_fewshot_rehearsal.md
+  best_checkpoint: null # not kept: this run only answers whether any variant passes
