@@ -1,0 +1,66 @@
+# wheat_v2: five classes from five sources. Built by `python -m zarai.data.wheat_v2` (DVC stage
+# wheat_v2). Paths are relative to the repo root.
+seed: 42
+classes: [black_rust, brown_rust, healthy, septoria, yellow_rust]
+
+# Sources, in the order a copy is kept when the same photo is in more than one: the earliest wins,
+# so an external dataset keeps its own photo and the Kaggle copy is dropped. label_map keys are
+# folder (or wheat_v1) labels after lower-casing and replacing non-alphanumerics with "_".
+# Anything not in a label_map is dropped and counted in the report.
+sources:
+  mendeley_wheat_leaf_ethiopia:
+    kind: folders
+    root: data/raw/images_public/mendeley_wheat_leaf_ethiopia
+    label_map: { healthy: healthy, stripe_rust: yellow_rust, septoria: septoria }
+  mendeley_iari_leaf_rust:
+    kind: folders
+    root: data/raw/images_public/mendeley_iari_leaf_rust
+    label_map: { control: healthy, diseased: brown_rust } # diseased = leaf rust
+  cgiar_wheat_rust:
+    kind: folders
+    root: data/raw/images_public/cgiar_wheat_rust
+    only_under: train # test/ has no labels
+    label_map: { healthy_wheat: healthy, stem_rust: black_rust, leaf_rust: brown_rust }
+  kaggle:
+    kind: wheat_v1_csv
+    # The cleaned wheat_v1 images, read from their original files before resizing.
+    splits_csv: data/splits/wheat_v1.csv
+    label_map:
+      { healthy: healthy, yellow_rust: yellow_rust, brown_rust: brown_rust,
+        black_rust: black_rust, septoria: septoria }
+  nwrd:
+    kind: nwrd_masks
+    root: data/raw/images_public/nwrd
+    test_only: true # never used for training, model selection, thresholds or early stopping
+    label: yellow_rust # NWRD masks mark stripe rust
+    tile_size: 384
+    min_mask_coverage: 0.05 # tiles with less rust are skipped; empty-mask tiles are NOT healthy
+
+dedupe:
+  # wheat_v1's pHash and DINOv2 thresholds, plus a pixel check. A pair is one photo only when the
+  # pixels or the embeddings agree; on two dark-background images only the pixels count, because
+  # pHash and DINOv2 both match different leaves on black (IARI).
+  max_hamming_distance: 6
+  min_cosine: 0.95
+  max_foreground_mad: 3.0 # 64x64 RGB thumbnails, 0-255, over pixels where either isn't near-black
+  embedding:
+    model: vit_small_patch14_dinov2.lvd142m
+    hf_revision: 4610ca143709d58a633b6397a74412c2c3842454
+
+splits:
+  pooled_folds: { train: 14, val: 3, test: 3 } # 70/15/15, for development only
+  loso_val_folds: { train: 17, val: 3 } # 15% of the remaining sources as val
+  min_classes_for_fold: 2
+
+preprocess:
+  long_side: 512 # downscale only; JPEG quality 92 and RGB, as in wheat_v1
+
+# Set to a CSV (normally data/interim/label_review_v2.csv) once an expert has filled in its
+# final_label column. final_label is one of `classes`, or `exclude` to keep an image out.
+apply_label_review: null
+
+outputs:
+  processed_dir: data/processed/wheat_v2
+  splits_csv: data/splits/wheat_v2.csv
+  interim_dir: data/interim/wheat_v2
+  review_csv: data/interim/label_review_v2.csv

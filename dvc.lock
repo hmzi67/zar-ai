@@ -37,3 +37,79 @@ stages:
       hash: md5
       md5: a301478ca1c041f875119eac6039b76b
       size: 2615911
+  wheat_v2:
+    cmd: .venv/bin/python -m zarai.data.wheat_v2 --config 
+      configs/data/wheat_v2.yaml
+    deps:
+    - path: configs/data/wheat_v2.yaml
+      hash: md5
+      md5: 877b5d1146954cdff25a24143dd446ac
+      size: 3004
+    - path: data/raw/images_public/cgiar_wheat_rust
+      hash: md5
+      md5: d22eaa867266dac144a5f502a95f5c5a.dir
+      size: 3237058425
+      nfiles: 1487
+    - path: data/raw/images_public/mendeley_iari_leaf_rust
+      hash: md5
+      md5: 8371aaed4449312b95b8f5eef44723cf.dir
+      size: 321042003
+      nfiles: 860
+    - path: data/raw/images_public/mendeley_wheat_leaf_ethiopia
+      hash: md5
+      md5: f76297b93a121080245a4c6837673bd9.dir
+      size: 1520083674
+      nfiles: 407
+    - path: data/raw/images_public/nwrd
+      hash: md5
+      md5: 848fd1828a70f81e367242e172095c3e.dir
+      size: 612841383
+      nfiles: 200
+    - path: data/raw/images_public/wheat_plant_diseases
+      hash: md5
+      md5: cd676a8f5dba83c342d8607559dbea5e.dir
+      size: 6585660165
+      nfiles: 14154
+    - path: data/splits/wheat_v1.csv
+      hash: md5
+      md5: a301478ca1c041f875119eac6039b76b
+      size: 2615911
+    - path: src/zarai/data/clean_wheat.py
+      hash: md5
+      md5: 1f26e6bbac213548270bf763e4128ef8
+      size: 39243
+    - path: src/zarai/data/leaf_mask.py
+      hash: md5
+      md5: b11cc3104dc914bf82a59545cb4573cf
+      size: 2027
+    - path: src/zarai/data/wheat_v2.py
+      hash: md5
+      md5: ab6299440ae7fd68b95da5da927c314c
+      size: 47428
+    - path: src/zarai/vision/eval_external.py
+      hash: md5
+      md5: e712588acc666f05c6905497d16a13d7
+      size: 37450
+    - path: src/zarai/vision/models.py
+      hash: md5
+      md5: d9a5e79b051a81b5ea4cdf025cdb225a
+      size: 1739
+    outs:
+    - path: data/interim/label_review_v2.csv
+      hash: md5
+      md5: a58ea8fd8f1dfd274d015085baeabdc1
+      size: 104045
+    - path: data/interim/wheat_v2
+      hash: md5
+      md5: 8dbb5ce1227219ccc593f169629c494b.dir
+      size: 84864983
+      nfiles: 746
+    - path: data/processed/wheat_v2
+      hash: md5
+      md5: dfe835d4881c4685f320e5972f3796ba.dir
+      size: 243819384
+      nfiles: 11797
+    - path: data/splits/wheat_v2.csv
+      hash: md5
+      md5: 5e1059ef442f4b51b8a40b8ac776dba0
+      size: 2071485

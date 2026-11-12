@@ -1,0 +1,34 @@
+# Few-shot adaptation to NWRD stripe rust. Run with scripts/run_wheat_v2_fewshot.sh, which first
+# trains the pooled models, then calls `python -m zarai.vision.fewshot_nwrd`.
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment: wheat_v2_fewshot_nwrd
+training_config: configs/vision/wheat_v2.yaml
+# For each configuration, the pooled run with the highest val macro-F1 (val only) is adapted.
+pooled:
+  seeds: [42, 0, 1]
+  configs:
+    - { backbone: efficientnetv2_s, mode: full, aug: strong }
+    - { backbone: dinov2_vit_b14, mode: full, aug: strong }
+    - { backbone: dinov2_vit_l14, mode: linear, aug: basic }
+nwrd:
+  # NWRD images (not tiles) are split into adapt and test, so no image has tiles on both sides.
+  adapt_share: 0.5 # of tiles, filled image by image in a seeded random order
+  split_seed: 42
+ks: [0, 10, 25, 50, 100] # yellow_rust tiles from the adapt images; plus k healthy images
+draws: 5 # random draws per k > 0; the same draws are used for every model
+adapt:
+  # Same mode as the checkpoint: full models update everything, linear models only the head.
+  # There's no early stopping or selection: NWRD test must stay unseen, and there is no other
+  # NWRD data to validate on. So every adaptation gets the same fixed budget.
+  steps: 60
+  batch_size: 32 # or 2k when that is smaller, so one batch holds the whole set
+  lr: { full: 1.0e-5, linear: 1.0e-3 } # full ViTs keep layer-wise LR decay
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  aug: basic # wheat_v1's augmentation
+  num_workers: 8
+  eval_batch_size: 128
+output:
+  doc: experiments/wheat_v2_fewshot_nwrd.md
+  plot: experiments/wheat_v2_fewshot_nwrd_recall.png
