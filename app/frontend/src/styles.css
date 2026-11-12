@@ -58,6 +58,57 @@ body {
   white-space: pre-wrap;
 }
 
+.bubble p {
+  margin: 0;
+}
+
+.bubble .photo {
+  display: block;
+  max-width: 100%;
+  max-height: 14rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0.5rem;
+}
+
+.predictions {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+  white-space: normal;
+}
+
+.predictions-title {
+  display: block;
+  margin-bottom: 0.25rem;
+  opacity: 0.75;
+}
+
+.prediction {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prediction-bar {
+  height: 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.prediction-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.prediction-prob {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
 .bubble.user {
   margin-inline-start: auto;
   border-color: var(--accent);

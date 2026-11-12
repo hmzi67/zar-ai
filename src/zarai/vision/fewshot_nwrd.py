@@ -22,6 +22,7 @@ from omegaconf import OmegaConf
 from zarai.common.io import read_csv
 from zarai.common.logging import get_logger
 from zarai.vision.results import END, START, TBD, replace_section, table
+from zarai.vision.serving import load_run_model
 from zarai.vision.tracking import dvc_hashes, set_tracking_uri
 
 YELLOW, HEALTHY = "yellow_rust", "healthy"
@@ -145,25 +146,6 @@ def best_pooled_run(training_cfg, backbone: str, mode: str, aug: str):
     if not runs:
         raise ValueError(f"no pooled run of {backbone}/{mode}/{aug}: run the pooled training first")
     return max(runs, key=lambda r: r.data.metrics["best_val_macro_f1"])
-
-
-def load_run_model(run_id: str, device: str):
-    """Rebuild a wheat_v2 run's best checkpoint. Returns (model, checkpoint, run config)."""
-    import torch
-
-    from zarai.vision import backbones
-    from zarai.vision.tracking import artifact_path
-
-    checkpoint = torch.load(
-        artifact_path(run_id, "checkpoints/best.pt"), map_location="cpu", weights_only=True
-    )
-    cfg = OmegaConf.create(checkpoint["config"])
-    # linear and lora checkpoints hold only the trained tensors, on top of the pinned weights.
-    model = backbones.build(
-        cfg, len(checkpoint["classes"]), pretrained=checkpoint["trainable_only"]
-    )
-    backbones.load_state(model, checkpoint["state_dict"], checkpoint["mode"])
-    return model.to(device), checkpoint, cfg
 
 
 def adapt(model, cfg, run_cfg, rows, classes, mean, std, device, seed: int) -> None:

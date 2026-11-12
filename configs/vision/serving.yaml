@@ -1,0 +1,15 @@
+# The image model the chatbot serves (configs/app.yaml points here). One wheat_v2 MLflow run: its
+# best checkpoint, and the temperature and abstention threshold fitted on its val split.
+mlflow:
+  tracking_uri: file:./mlruns
+# dinov2_vit_b14 / full / strong, pooled, seed 1. It is the 2nd-best LOSO configuration (siglip2 is
+# 1st but has no pooled run), and this seed has the highest val macro-F1 (0.976; 0.943 on its
+# pooled test split). It has not been adapted to NWRD: field photos of stripe rust are mostly
+# missed (NWRD tile recall 0.06). See experiments/wheat_v2_results.md and
+# experiments/wheat_v2_fewshot_nwrd.md.
+run_id: 59b1519214304ec885ddc26518002a00
+device: auto # cuda when available, else cpu
+top_k: 3
+# Uploads are prepared like the wheat_v2 training images (configs/data/wheat_v2.yaml).
+long_side: 512
+jpeg_quality: 92

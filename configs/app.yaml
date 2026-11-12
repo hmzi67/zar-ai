@@ -1,5 +1,5 @@
 retriever_config: configs/nlp/retriever.yaml
-vision_config: configs/vision/finetune_local.yaml
+vision_config: configs/vision/serving.yaml
 generator:
   backend: hf # hf | vllm
   model: null # TODO: set after the generator bake-off

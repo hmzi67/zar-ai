@@ -194,3 +194,27 @@ bash scripts/run_wheat_v2_grid.sh full        # all 28 configurations (first-gri
 ```
 
 It checks the dataset and loaders first, then trains each configuration on every fold with `--skip-done`. Rerunning the same command after a crash only runs what's missing. One failing configuration doesn't stop the others. Per-configuration logs go to `experiments/runs/grid_logs/`, and the results table is rebuilt at the end. `SEEDS=42` limits it to one seed, and extra `key=value` arguments go to every run. `make grid` (or `make grid GRID=full`) does the same.
+
+## Trying the image model in the chatbot
+
+`configs/app.yaml` points the API at `configs/vision/serving.yaml`, which names one wheat_v2 MLflow
+run. The run supplies the checkpoint, plus the temperature and abstention threshold fitted on its
+val split. To serve another run, change `run_id` there.
+
+```bash
+make app-dev   # API on :8000, frontend on :5173 (needs Node.js 18+ for the frontend)
+```
+
+Open http://localhost:5173, attach a leaf photo and ask a question. Until the knowledge base and
+generator exist, the reply is the image model's diagnosis on its own (status `diagnosis`), with its
+top 3 classes shown as bars. Below the abstention threshold (0.99 for the served run), the bot asks
+for a clearer photo but still shows its guesses. A question without a photo still returns "not
+ready". To test without the UI:
+
+```bash
+curl -F "image=@leaf.jpg;type=image/jpeg" localhost:8000/classify
+curl -F "question=ye kya bimari hai?" -F "image=@leaf.jpg;type=image/jpeg" localhost:8000/ask
+```
+
+The served model has not been adapted to field photos: it misses most NWRD stripe rust (tile
+recall 0.06). There is no plant filter yet, so a non-plant photo still gets a disease label.
