@@ -8,13 +8,16 @@ export interface Prediction {
 export interface Vision {
   top: Prediction[];
   abstain: boolean;
+  // confident >= 0.90, likely >= 0.60, unsure below; not_plant: turned away, top is empty.
+  band: "confident" | "likely" | "unsure" | "not_plant";
+  plant_prob: number | null;
 }
 
 export interface AnswerResponse {
   answer: string;
   lang: "ur" | "ur-Latn" | "en";
   // diagnosis: the image model's result alone, while the knowledge base or generator isn't ready.
-  status: "answered" | "clarify" | "refused" | "blocked" | "diagnosis";
+  status: "answered" | "clarify" | "refused" | "blocked" | "diagnosis" | "not_plant";
   sources: string[];
   vision: Vision | null;
 }

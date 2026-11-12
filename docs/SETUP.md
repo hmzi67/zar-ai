@@ -198,18 +198,24 @@ It checks the dataset and loaders first, then trains each configuration on every
 ## Trying the image model in the chatbot
 
 `configs/app.yaml` points the API at `configs/vision/serving.yaml`, which names one wheat_v2 MLflow
-run. The run supplies the checkpoint, plus the temperature and abstention threshold fitted on its
-val split. To serve another run, change `run_id` there.
+run. The run supplies the checkpoint and the temperature fitted on its val split. To serve another
+run, change `run_id` there.
 
 ```bash
 make app-dev   # API on :8000, frontend on :5173 (needs Node.js 18+ for the frontend)
 ```
 
-Open http://localhost:5173, attach a leaf photo and ask a question. Until the knowledge base and
-generator exist, the reply is the image model's diagnosis on its own (status `diagnosis`), with its
-top 3 classes shown as bars. Below the abstention threshold (0.99 for the served run), the bot asks
-for a clearer photo but still shows its guesses. A question without a photo still returns "not
-ready". To test without the UI:
+Open http://localhost:5173, attach a leaf photo and ask a question. The reply depends on the photo:
+
+- not a plant (CLIP filter, `plant_filter` in serving.yaml): "Please send a photo of a wheat leaf";
+- top calibrated probability >= 0.90: the diagnosis;
+- 0.60 to 0.90: "probably <disease>", plus a question to confirm the symptoms;
+- below 0.60: a request for a clearer photo, with the model's guesses still shown.
+
+Until the knowledge base and generator exist, the reply is the image model's diagnosis on its own
+(status `diagnosis`), with all 5 classes shown as bars. A question without a photo still returns
+"not ready". experiments/serving_bands.md has the share and accuracy of each band, and
+experiments/plant_filter.md has the filter's calibration. To test without the UI:
 
 ```bash
 curl -F "image=@leaf.jpg;type=image/jpeg" localhost:8000/classify
@@ -217,4 +223,5 @@ curl -F "question=ye kya bimari hai?" -F "image=@leaf.jpg;type=image/jpeg" local
 ```
 
 The served model has not been adapted to field photos: it misses most NWRD stripe rust (tile
-recall 0.06). There is no plant filter yet, so a non-plant photo still gets a disease label.
+recall 0.06), and most of those misses land in the confident band. The plant filter only asks
+"is this a plant?", so a photo of another crop still gets a wheat disease label.

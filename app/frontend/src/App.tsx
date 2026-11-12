@@ -14,7 +14,8 @@ function Predictions({ vision, t }: { vision: Vision; t: Strings }) {
     <div className="predictions">
       <span className="predictions-title">
         {t.modelSaw}
-        {vision.abstain && ` (${t.lowConfidence})`}
+        {vision.band === "unsure" && ` (${t.lowConfidence})`}
+        {vision.band === "likely" && ` (${t.likely})`}
       </span>
       {vision.top.map(({ label, prob }) => (
         <div key={label} className="prediction">
@@ -94,7 +95,9 @@ export default function App() {
             <p className={isUrduScript(message.text) ? "urdu" : ""} dir="auto">
               {message.text}
             </p>
-            {message.vision && <Predictions vision={message.vision} t={t} />}
+            {message.vision && message.vision.top.length > 0 && (
+              <Predictions vision={message.vision} t={t} />
+            )}
           </div>
         ))}
         {busy && <p className="status">{t.sending}…</p>}

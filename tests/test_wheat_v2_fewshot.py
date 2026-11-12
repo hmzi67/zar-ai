@@ -80,3 +80,52 @@ def test_source_counts_and_single_source_classes():
     assert by_class["yellow_rust"] == []  # test-only data isn't a training source
     train = fold_training(rows, "b", classes)
     assert train["septoria"] == Counter() and train["black_rust"] == Counter({"a": 1})
+
+
+def test_control_tile_offsets_and_mask_geometry():
+    import numpy as np
+    import pytest
+
+    pytest.importorskip("PIL")
+    from zarai.vision.fewshot_controls import mask_in_model_space, tile_offsets
+
+    assert tile_offsets({"original_path": "x/nwrd_tiles/117_384_1920.png"}) == (384, 1920)
+    mask = np.zeros((384, 384), bool)
+    mask[:, :192] = True  # left half is rust
+    out = mask_in_model_space(mask, eval_resize=256, image_size=224)
+    assert out.shape == (224, 224)
+    assert out[:, :100].all() and not out[:, 124:].any()  # the centre crop keeps the halves
+
+
+def test_rehearsal_draws_k_per_class_from_train_only_and_repeat_per_variant():
+    from zarai.vision.fewshot_rehearsal import class_groups, load_cfg
+
+    cfg = load_cfg("configs/vision/wheat_v2_fewshot_rehearsal.yaml")
+    rows = [
+        {"path": f"{label}_{split}_{i}", "label": label, "split_pooled": split}
+        for label in ("brown_rust", "black_rust", "septoria")
+        for split in ("train", "test")
+        for i in range(40)
+    ]
+    drawn = [
+        {"path": f"y{i}", "original_path": f"y{i}.png", "label": "yellow_rust"} for i in range(25)
+    ] + [{"path": f"h{i}", "label": "healthy"} for i in range(25)]
+    env = {"rows": rows, "train_column": "split_pooled"}
+    groups = class_groups(cfg, env, 25, 3, drawn, lesion=False)
+    assert {c: len(v) for c, v in groups.items()} == dict.fromkeys(
+        ["yellow_rust", "healthy", "brown_rust", "black_rust", "septoria"], 25
+    )
+    assert not any("_test_" in p for v in groups.values() for p in v)
+    assert groups == class_groups(cfg, env, 25, 3, drawn, lesion=False)
+    assert groups != class_groups(cfg, env, 25, 4, drawn, lesion=False)
+
+
+def test_rehearsal_config_keeps_the_controls_criteria():
+    from omegaconf import OmegaConf
+
+    from zarai.vision.fewshot_rehearsal import load_cfg
+
+    merged = load_cfg("configs/vision/wheat_v2_fewshot_rehearsal.yaml")
+    original = OmegaConf.load("configs/vision/wheat_v2_fewshot_controls.yaml")
+    assert merged.criteria == original.criteria
+    assert merged.controls == original.controls
