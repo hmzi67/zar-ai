@@ -23,6 +23,19 @@ class AnswerResponse(BaseModel):
     sources: list[str]
 
 
+class Passage(BaseModel):
+    chunk_id: str
+    source_id: str | None = None
+    pages: list[str] = []
+    score: float
+    text: str
+
+
+class RetrieveResponse(BaseModel):
+    lang: Literal["ur", "ur-Latn", "en"]
+    passages: list[Passage]
+
+
 class Prediction(BaseModel):
     label: str
     prob: float

@@ -1,5 +1,6 @@
 """Dense retrieval with sentence-transformers (bge-m3 by default)."""
 
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -7,11 +8,15 @@ import numpy as np
 DEFAULT_MODEL = "BAAI/bge-m3"
 
 
-def encode_texts(texts: list[str], model: str = DEFAULT_MODEL, batch_size: int = 32) -> np.ndarray:
+@lru_cache(maxsize=2)
+def _load_encoder(model: str):
     from sentence_transformers import SentenceTransformer
 
-    encoder = SentenceTransformer(model)
-    return encoder.encode(texts, batch_size=batch_size, normalize_embeddings=True)
+    return SentenceTransformer(model)
+
+
+def encode_texts(texts: list[str], model: str = DEFAULT_MODEL, batch_size: int = 32) -> np.ndarray:
+    return _load_encoder(model).encode(texts, batch_size=batch_size, normalize_embeddings=True)
 
 
 class DenseRetriever:

@@ -1,6 +1,6 @@
 seed: 42
 chunks_file: ${paths.processed}/kb/chunks.jsonl
-mode: bm25 # bm25 | dense | hybrid
+mode: bm25 # bm25 | dense | hybrid | routed (ur: hybrid, ur-Latn/en: dense)
 top_k: 5
 dense:
   model: BAAI/bge-m3

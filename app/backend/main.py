@@ -1,4 +1,4 @@
-"""ZarAI API. /chat, /classify and /ask return 501 until the models and KB exist."""
+"""ZarAI API. /chat, /classify, /ask and /retrieve return 501 until the models and KB exist."""
 
 import logging
 from collections.abc import Callable
@@ -14,10 +14,13 @@ from app.backend.schemas import (
     ChatRequest,
     ClassifyResponse,
     HealthResponse,
+    Passage,
+    RetrieveResponse,
 )
 from app.backend.settings import settings
 from zarai import __version__
 from zarai.fusion.pipeline import Pipeline
+from zarai.nlp.script_detect import detect_script
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="ZarAI API", version=__version__)
@@ -60,6 +63,23 @@ def health() -> HealthResponse:
 @app.post("/chat")
 def chat(request: ChatRequest) -> AnswerResponse:
     return AnswerResponse(**_call_pipeline(lambda p: p.answer(request.question)))
+
+
+@app.post("/retrieve")
+def retrieve(request: ChatRequest) -> RetrieveResponse:
+    """KB passages for a question, without the LLM, so retrieval can be checked on its own."""
+    chunks = _call_pipeline(lambda p: {"chunks": p.retriever.search(request.question, p.top_k)})
+    passages = [
+        Passage(
+            chunk_id=c["chunk_id"],
+            source_id=c.get("source_id"),
+            pages=[str(p) for p in c.get("pages", [])],
+            score=c["score"],
+            text=c["text"],
+        )
+        for c in chunks["chunks"]
+    ]
+    return RetrieveResponse(lang=detect_script(request.question), passages=passages)
 
 
 @app.post("/classify")
