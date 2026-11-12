@@ -1,0 +1,71 @@
+# Inputs, outputs and mapping rules for zarai.data.wheat_qa (wheat Q&A v1).
+# Both source files are synthetic/template-generated; see data/processed/qa/README.md.
+inputs:
+  A: data/qa/ZarAI_Wheat_Classification.xlsx   # 9 topic sheets, "(Case N)" templates
+  B: data/qa/wheat only qa dataset..xlsx       # 223 groups x 68 wrapped variants
+
+outputs:
+  v1: data/processed/qa/wheat_qa_v1.jsonl
+  variants: data/processed/qa/wheat_qa_variants.jsonl  # train-only augmentation
+  summary: data/processed/qa/wheat_qa_v1.summary.json
+  review: data/interim/qa_review.csv                    # quarantined for expert review
+  log: data/interim/qa_cleaning_log.csv
+
+annotator: import:wheat_qa_v1
+near_duplicate_threshold: 90   # rapidfuzz ratio on the English question; only drops rows with the same answer
+variant_id_start: 1000001      # variants get ids far above v1 so the two files never collide
+
+# Files' `category` → schema topic. null = the category has no crop topic, so the keyword guess decides.
+category_topic:
+  disease_management: disease
+  disease_identification: disease
+  disease_conditions: disease
+  disease_prevention: disease
+  seed_treatment: disease
+  pest_management: pest
+  pest_identification: pest
+  pest_conditions: pest
+  pest_prevention: pest
+  integrated_pest_management: pest
+  pesticide_safety: pest
+  fertilizer_management: fertiliser
+  nutrient_deficiency: fertiliser
+  soil_health: fertiliser
+  irrigation_management: irrigation
+  water_stress: irrigation
+  water_management: irrigation
+  weed_management: weed
+  post_harvest: harvest_storage
+  disaster_management: harvest_storage
+  variety_selection: sowing_varieties
+  planting_calendar: sowing_varieties
+  seed_quality: sowing_varieties
+  land_preparation: sowing_varieties
+  unsafe_request: off_topic_unsafe
+  modern_technology: other
+  agricultural_challenges: other
+  crop_geography: other
+  agricultural_finance: other
+  digital_agriculture: other
+  organic_farming: other
+  yield_loss: null
+  expert_referral: null
+  yield_improvement: null
+  climate_adaptation: null
+  crop_management: null
+  soil_management: null
+
+season:
+  rabi: rabi
+  all_seasons: any
+  kharif: any   # wheat is a rabi crop: kept, flagged season_suspect
+
+# Answers that look factually wrong or unsafe (scan report §6). Matched case-insensitively
+# as substrings of the English answer; every row and group carrying one is quarantined.
+unsafe_answers:
+  - match: aluminum phosphide or methyl bromide
+    reason: aluminium phosphide is a fumigant tablet, not a spray; methyl bromide is phased out
+  - match: spray tricyclazole or propiconazole
+    reason: tricyclazole is a rice-blast fungicide, not a rust product
+  - match: 2,4-d herbicide for wild oats
+    reason: 2,4-D controls broad-leaf weeds, not wild oats (a grass)

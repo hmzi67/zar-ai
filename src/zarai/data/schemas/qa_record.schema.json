@@ -8,7 +8,7 @@
     "id": { "type": "string", "pattern": "^qa_\\d{4,}$" },
     "lang": { "enum": ["ur", "ur-Latn", "en"] },
     "crop": { "enum": ["wheat", "potato", "tomato", "sugarcane", "maize", "cotton", "rice", "general"] },
-    "topic": { "enum": ["sowing_varieties", "fertiliser", "irrigation", "pest", "disease", "weed", "harvest_storage", "off_topic_unsafe"] },
+    "topic": { "enum": ["sowing_varieties", "fertiliser", "irrigation", "pest", "disease", "weed", "harvest_storage", "other", "off_topic_unsafe"] },
     "season": { "enum": ["rabi", "kharif", "any"] },
     "question": { "type": "string", "minLength": 1 },
     "answer": { "type": "string", "minLength": 1 },

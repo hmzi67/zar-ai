@@ -3,4 +3,7 @@ scipy>=1.11,<2
 scikit-learn>=1.4,<2
 omegaconf>=2.3,<3
 jsonschema>=4.20,<5
+# Wheat Q&A import: read .xlsx sources, fuzzy near-duplicate matching.
+openpyxl>=3.1,<4
+rapidfuzz>=3.9,<4
 rank-bm25>=0.2,<1

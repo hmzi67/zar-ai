@@ -113,3 +113,56 @@ stages:
       hash: md5
       md5: 5e1059ef442f4b51b8a40b8ac776dba0
       size: 2071485
+  wheat_qa_v1:
+    cmd: .venv/bin/python -m zarai.data.wheat_qa --config 
+      configs/data/wheat_qa_v1.yaml
+    deps:
+    - path: configs/data/wheat_qa_v1.yaml
+      hash: md5
+      md5: 478d6a53c28d2ea7e25718b44fdcb047
+      size: 2781
+    - path: data/qa/ZarAI_Wheat_Classification.xlsx
+      hash: md5
+      md5: 21b243b27f4563cb121b400defeeba11
+      size: 76890
+    - path: data/qa/wheat only qa dataset..xlsx
+      hash: md5
+      md5: 9fe823ad10c7e6ac10bac14cb949399b
+      size: 1381856
+    - path: src/zarai/data/schemas/qa_record.schema.json
+      hash: md5
+      md5: ff6bfe458a907ddb4ff79fead317f0e3
+      size: 1177
+    - path: src/zarai/data/wheat_qa.py
+      hash: md5
+      md5: 8c0d1d7aa95c1277ed0605b0e785441d
+      size: 24271
+    - path: src/zarai/kb/clean.py
+      hash: md5
+      md5: 2af96441d1b459ff0ef7bbdbc16f1cb8
+      size: 778
+    - path: src/zarai/nlp/normalise.py
+      hash: md5
+      md5: 719f62883ddb1436280fecf0ca3559a4
+      size: 1995
+    outs:
+    - path: data/interim/qa_cleaning_log.csv
+      hash: md5
+      md5: 2bda1d2c599cbe5b2bfe41986f3ef92e
+      size: 678824
+    - path: data/interim/qa_review.csv
+      hash: md5
+      md5: 670943d77a9c5184cc20f4a78225f3fb
+      size: 64241
+    - path: data/processed/qa/wheat_qa_v1.jsonl
+      hash: md5
+      md5: b6c2475247ccf9af21dd474dcbb409d0
+      size: 388616
+    - path: data/processed/qa/wheat_qa_v1.summary.json
+      hash: md5
+      md5: 0a16e1b8b6ffd8d8df5e37c4f3d4c673
+      size: 2204
+    - path: data/processed/qa/wheat_qa_variants.jsonl
+      hash: md5
+      md5: df8a41f992714d97237efdd276cf921f
+      size: 27290397
