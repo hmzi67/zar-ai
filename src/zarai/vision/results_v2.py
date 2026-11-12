@@ -83,6 +83,12 @@ def fold_classes(splits_csv) -> dict[str, list[str]]:
     return {source: sorted(labels) for source, labels in classes.items()}
 
 
+def _nanmean(values, digits: int) -> str:
+    """Mean of the logged values, or TBD when none were logged."""
+    found = [v for v in values if not np.isnan(v)]
+    return f"{np.mean(found):.{digits}f}" if found else TBD
+
+
 def render(cfg, grouped, folds, classes_by_source, dvc) -> list[str]:
     combos = grid_combos(cfg)
     extra = sorted({key[1:] for key in grouped} - set(combos))
@@ -163,8 +169,8 @@ def render(cfg, grouped, folds, classes_by_source, dvc) -> list[str]:
                 f"{len(values)}/{len(folds)}",
                 f"{np.mean([v[0] for v in values]):.4f}",
                 f"{fold_means[combo][worst][0]:.4f} ({worst})",
-                f"{np.nanmean([v[1] for v in values]):.4f}",
-                f"{np.nanmean([v[2] for v in values]):.3f}",
+                _nanmean([v[1] for v in values], 4),
+                _nanmean([v[2] for v in values], 3),
             ]
         )
     summary += [

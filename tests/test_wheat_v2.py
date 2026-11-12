@@ -251,6 +251,8 @@ def test_leakage_check_fails_when_a_held_out_image_trains():
 
 
 def test_leaf_mask_keeps_lesions_inside_a_leaf_and_drops_the_background():
+    pytest.importorskip("PIL")
+    pytest.importorskip("scipy")
     image = np.zeros((100, 100, 3), dtype=np.uint8)  # black background, like IARI
     image[20:80, 30:70] = (40, 160, 40)  # green leaf
     image[45:55, 45:55] = (120, 60, 20)  # brown lesion inside it
@@ -261,6 +263,8 @@ def test_leaf_mask_keeps_lesions_inside_a_leaf_and_drops_the_background():
 
 
 def test_leaf_mask_falls_back_to_everything_when_it_finds_no_plant():
+    pytest.importorskip("PIL")
+    pytest.importorskip("scipy")
     mask, fell_back = leaf_mask(np.full((40, 40, 3), 128, dtype=np.uint8))
     assert fell_back and mask.all()
 
@@ -290,6 +294,9 @@ def _fake_embedder(paths, pool):
 
 @pytest.fixture
 def sources(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("imagehash")
+    pytest.importorskip("scipy")
     from PIL import Image
 
     raw = tmp_path / "raw"

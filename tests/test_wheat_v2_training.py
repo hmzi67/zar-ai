@@ -49,6 +49,8 @@ def test_confidently_wrong_counts_only_wrong_answers_above_the_threshold():
 
 
 def test_strong_transform_gives_normalised_tensors_of_the_right_size():
+    pytest.importorskip("PIL")
+    pytest.importorskip("torchvision")
     from PIL import Image
 
     from zarai.vision.transforms import build_train_transforms
@@ -81,6 +83,8 @@ def _tiny_split(tmp_path: Path):
 
 
 def test_background_remove_blacks_out_only_the_background(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("scipy")
     from zarai.vision.datasets import WheatV2Dataset
 
     csv = _tiny_split(tmp_path)
@@ -95,6 +99,8 @@ def test_background_remove_blacks_out_only_the_background(tmp_path):
 
 
 def test_background_replacement_keeps_the_leaf(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("scipy")
     from zarai.vision.datasets import WheatV2Dataset
 
     csv = _tiny_split(tmp_path)
@@ -106,6 +112,8 @@ def test_background_replacement_keeps_the_leaf(tmp_path):
 
 
 def test_lora_trains_only_adapters_and_the_head():
+    pytest.importorskip("timm")
+    pytest.importorskip("peft")
     from omegaconf import OmegaConf
 
     from zarai.vision import backbones
@@ -121,6 +129,7 @@ def test_lora_trains_only_adapters_and_the_head():
 
 
 def test_layer_decay_lowers_the_lr_of_early_blocks():
+    pytest.importorskip("timm")
     from omegaconf import OmegaConf
 
     from zarai.vision import backbones
