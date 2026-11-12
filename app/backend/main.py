@@ -1,4 +1,5 @@
-"""ZarAI API. /chat, /classify and /ask return 501 until the models and KB exist."""
+"""ZarAI API. /chat returns 501 until the KB and generator exist. /classify and /ask work once the
+image model is served (configs/vision/serving.yaml); /ask then answers with the diagnosis alone."""
 
 import logging
 from collections.abc import Callable
@@ -17,7 +18,8 @@ from app.backend.schemas import (
 )
 from app.backend.settings import settings
 from zarai import __version__
-from zarai.fusion.pipeline import Pipeline
+from zarai.fusion.pipeline import NOT_READY, Pipeline
+from zarai.vision.serving import InvalidImageError
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="ZarAI API", version=__version__)
@@ -37,9 +39,11 @@ def get_pipeline() -> Pipeline:
 def _call_pipeline(call: Callable[[Pipeline], dict]) -> dict:
     try:
         return call(get_pipeline())
-    except (NotImplementedError, FileNotFoundError, ImportError) as error:
+    except NOT_READY as error:
         log.warning("pipeline not ready: %s", error)
         raise HTTPException(status_code=501, detail="Model or knowledge base not ready") from error
+    except InvalidImageError as error:
+        raise HTTPException(status_code=400, detail="Could not read the image") from error
 
 
 def _read_image(image: UploadFile) -> bytes:
