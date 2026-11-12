@@ -1,0 +1,48 @@
+Served model: dinov2_vit_b14 / full / strong, pooled, seed 1 (MLflow run 59b1519214304ec885ddc26518002a00)
+Temperature 0.6045, abstention threshold 0.9902
+
+== Pooled test split (sources seen in training, images not seen): 822 images ==
+
+All predictions (no abstention):
+              precision    recall  f1-score   support
+
+  black_rust      0.778     0.955     0.857        44
+  brown_rust      0.988     0.933     0.960       254
+     healthy      0.987     0.971     0.979       241
+    septoria      0.904     0.985     0.943        67
+ yellow_rust      0.972     0.981     0.977       216
+
+    accuracy                          0.962       822
+   macro avg      0.926     0.965     0.943       822
+weighted avg      0.965     0.962     0.963       822
+
+Answered only (top prob >= 0.990): 658 of 822 (80.0%) answered, accuracy 0.995
+
+Confusion matrix (rows = true, columns = predicted):
+           black_rust brown_rust    healthy   septoria yellow_rus
+black_rust         42          2          0          0          0
+brown_rust          8        237          2          5          2
+   healthy          2          0        234          1          4
+  septoria          1          0          0         66          0
+yellow_rus          1          1          1          1        212
+
+== NWRD field tiles (never trained on, all yellow_rust): 409 images ==
+
+All predictions (no abstention):
+              precision    recall  f1-score   support
+
+  black_rust      0.000     0.000     0.000         0
+  brown_rust      0.000     0.000     0.000         0
+     healthy      0.000     0.000     0.000         0
+    septoria      0.000     0.000     0.000         0
+ yellow_rust      1.000     0.059     0.111       409
+
+    accuracy                          0.059       409
+   macro avg      0.200     0.012     0.022       409
+weighted avg      1.000     0.059     0.111       409
+
+Answered only (top prob >= 0.990): 116 of 409 (28.4%) answered, accuracy 0.026
+
+Confusion matrix (rows = true, columns = predicted):
+           black_rust brown_rust    healthy   septoria yellow_rus
+yellow_rus          7        357         13          8         24

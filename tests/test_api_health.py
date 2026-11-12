@@ -46,12 +46,78 @@ def test_health():
     assert response.json()["status"] == "ok"
 
 
-def test_real_endpoints_return_501_until_models_exist():
+class NoModel:
+    def classify(self, image):
+        raise NotImplementedError("no run to serve")
+
+
+class ToyClassifier:
+    def __init__(self, band="confident"):
+        self.result = {
+            "top": [{"label": "yellow_rust", "prob": 0.9}, {"label": "healthy", "prob": 0.1}],
+            "band": band,
+            "abstain": band == "unsure",
+        }
+
+    def classify(self, image):
+        return self.result
+
+
+class BadImage:
+    def classify(self, image):
+        from zarai.vision.serving import InvalidImageError
+
+        raise InvalidImageError("not an image")
+
+
+def test_chat_returns_501_until_the_kb_exists():
     get_pipeline.cache_clear()
     assert client.post("/chat", json={"question": "kya hai"}).status_code == 501
+
+
+def test_image_endpoints_return_501_without_an_image_model(pipeline):
+    pipeline(classifier=NoModel(), retriever=NotReady())
     assert client.post("/classify", files=IMAGE).status_code == 501
     assert client.post("/ask", data={"question": "kya hai"}, files=IMAGE).status_code == 501
     assert client.post("/retrieve", json={"question": "kya hai"}).status_code == 501
+
+
+def test_ask_answers_with_the_diagnosis_until_the_kb_exists(pipeline):
+    pipeline(classifier=ToyClassifier(), retriever=NotReady())
+    body = client.post("/ask", data={"question": "What is this?"}, files=IMAGE).json()
+    assert body["status"] == "diagnosis" and body["sources"] == []
+    assert body["vision"]["top"][0] == {"label": "yellow_rust", "prob": 0.9}
+    assert body["answer"].startswith("Image model result: Yellow (stripe) rust, 90%.")
+    assert "Healthy leaf 10%" in body["answer"]
+
+
+def test_an_unsure_classifier_still_returns_its_guesses(pipeline):
+    pipeline(classifier=ToyClassifier(band="unsure"), retriever=NotReady())
+    body = client.post("/ask", data={"question": "kya hai"}, files=IMAGE).json()
+    assert body["status"] == "clarify" and body["vision"]["band"] == "unsure"
+
+
+def test_a_likely_result_is_answered_with_a_confirming_question(pipeline):
+    pipeline(classifier=ToyClassifier(band="likely"), retriever=NotReady())
+    body = client.post("/ask", data={"question": "What is this?"}, files=IMAGE).json()
+    assert body["status"] == "diagnosis" and body["vision"]["band"] == "likely"
+    assert "probably Yellow (stripe) rust" in body["answer"] and "To confirm:" in body["answer"]
+
+
+def test_a_non_plant_photo_is_turned_away(pipeline):
+    class NotPlant:
+        def classify(self, image):
+            return {"top": [], "band": "not_plant", "abstain": True, "plant_prob": 0.01}
+
+    pipeline(classifier=NotPlant(), retriever=NotReady())
+    body = client.post("/ask", data={"question": "ye kya hai?"}, files=IMAGE).json()
+    assert body["status"] == "not_plant"
+    assert body["answer"] == "Barah-e-karam gandum ke pattay ki tasveer bhejein."
+
+
+def test_an_unreadable_image_is_a_400(pipeline):
+    pipeline(classifier=BadImage())
+    assert client.post("/classify", files=IMAGE).status_code == 400
 
 
 def test_missing_kb_returns_501(pipeline):

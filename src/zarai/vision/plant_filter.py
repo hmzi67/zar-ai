@@ -1,5 +1,187 @@
-"""Reject non-plant photos before classification (stub)."""
+"""Reject non-plant photos before the disease model: CLIP zero-shot, plant vs non-plant prompts.
+
+The plant probability is the softmax mass on the plant prompts. The threshold is calibrated by
+`python -m zarai.vision.plant_filter` on wheat_v2 val images (all must pass) and Imagenette train
+images (non-plant), and checked on the wheat_v2 test split, NWRD and Imagenette val
+(experiments/plant_filter.md). It only asks "is this a plant?": a photo of another crop passes.
+"""
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+
+DOC = Path("experiments/plant_filter.md")
+IMAGENETTE = {
+    "n01440764": "tench",
+    "n02102040": "English springer",
+    "n02979186": "cassette player",
+    "n03000684": "chain saw",
+    "n03028079": "church",
+    "n03394916": "French horn",
+    "n03417042": "garbage truck",
+    "n03425413": "gas pump",
+    "n03445777": "golf ball",
+    "n03888257": "parachute",
+}
 
 
-def is_plant(image_bytes: bytes) -> bool:
-    raise NotImplementedError("TODO: CLIP zero-shot check of plant vs non-plant prompts")
+class PlantFilter:
+    def __init__(self, cfg, device: str = "cpu"):
+        import torch
+        from transformers import CLIPModel, CLIPProcessor
+
+        self.device = device
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        self.model = CLIPModel.from_pretrained(cfg.model, revision=cfg.revision, dtype=dtype)
+        self.model.to(device).eval()
+        self.processor = CLIPProcessor.from_pretrained(cfg.model, revision=cfg.revision)
+        self.n_plant = len(cfg.plant_prompts)
+        self.threshold = cfg.get("min_plant_prob")
+        prompts = [*cfg.plant_prompts, *cfg.other_prompts]
+        with torch.inference_mode():
+            tokens = self.processor(text=prompts, return_tensors="pt", padding=True).to(device)
+            text = self.model.get_text_features(**tokens).pooler_output
+        self.text = text / text.norm(dim=-1, keepdim=True)
+
+    def plant_prob(self, images) -> np.ndarray:
+        """Plant probability for a list of PIL images."""
+        import torch
+
+        with torch.inference_mode():
+            pixels = self.processor(images=images, return_tensors="pt")["pixel_values"]
+            features = self.model.get_image_features(
+                pixel_values=pixels.to(self.device, self.text.dtype)
+            ).pooler_output
+            features = features / features.norm(dim=-1, keepdim=True)
+            logits = self.model.logit_scale.exp() * features @ self.text.T
+            probs = logits.float().softmax(dim=-1)[:, : self.n_plant].sum(dim=-1)
+        return probs.cpu().numpy()
+
+    def check(self, image) -> tuple[bool, float]:
+        """(is a plant, plant probability) for one PIL image."""
+        if self.threshold is None:
+            raise ValueError(
+                "plant_filter.min_plant_prob isn't set: run python -m zarai.vision.plant_filter"
+            )
+        prob = float(self.plant_prob([image])[0])
+        return prob >= self.threshold, prob
+
+
+# ---------------------------------------------------------------------------------------------
+# Calibration
+
+
+def _load(path: str):
+    from zarai.data.clean_wheat import _open_rgb
+
+    return _open_rgb(path)[0]
+
+
+def score_paths(filt: PlantFilter, paths, batch: int = 64) -> np.ndarray:
+    from concurrent.futures import ThreadPoolExecutor
+
+    out = []
+    with ThreadPoolExecutor(8) as pool:
+        for start in range(0, len(paths), batch):
+            images = list(pool.map(_load, paths[start : start + batch]))
+            out.append(filt.plant_prob(images))
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+def threshold_keeping(probs: np.ndarray, keep: float) -> float:
+    """The largest threshold that keeps at least `keep` of these (plant) images."""
+    return float(np.quantile(probs, 1 - keep, method="lower"))
+
+
+def calibrate(
+    serving_cfg, splits_csv: str, negatives_root: str, keep: float, doc: Path = DOC
+) -> float:
+    import torch
+
+    from zarai.common.io import read_csv
+    from zarai.vision.results import table
+
+    cfg = serving_cfg.plant_filter
+    filt = PlantFilter(cfg, "cuda" if torch.cuda.is_available() else "cpu")
+    rows = read_csv(splits_csv)
+    sets = {
+        "wheat_v2 val (calibration, plant)": [
+            r["path"] for r in rows if r["split_pooled"] == "val"
+        ],
+        "Imagenette train (calibration, non-plant)": sorted(
+            str(p) for p in Path(negatives_root, "train").rglob("*.JPEG")
+        ),
+        "wheat_v2 test (plant)": [r["path"] for r in rows if r["split_pooled"] == "test"],
+        "NWRD tiles (plant, field photos)": [r["path"] for r in rows if r["source"] == "nwrd"],
+        "Imagenette val (non-plant)": sorted(
+            str(p) for p in Path(negatives_root, "val").rglob("*.JPEG")
+        ),
+    }
+    probs = {name: score_paths(filt, paths) for name, paths in sets.items()}
+    names = list(sets)
+    threshold = threshold_keeping(probs[names[0]], keep)
+    lines = [
+        "# Plant filter: CLIP zero-shot calibration",
+        "",
+        f"Generated by `python -m zarai.vision.plant_filter`. Model `{cfg.model}` at `{cfg.revision}`. "
+        f"Plant probability = softmax mass on {len(cfg.plant_prompts)} plant prompts against "
+        f"{len(cfg.other_prompts)} non-plant prompts (configs/vision/serving.yaml).",
+        "",
+        f"Threshold: the largest value that keeps {keep:.1%} of wheat_v2 val images → "
+        f"**{threshold:.4f}**. The calibration sets only set the threshold; the others are the check.",
+        "",
+    ]
+    rows_out = []
+    for name in names:
+        p = probs[name]
+        plant = "non-plant" not in name
+        passed = float((p >= threshold).mean())
+        rows_out.append(
+            [
+                name,
+                len(p),
+                f"{passed:.3%}" if plant else "-",
+                "-" if plant else f"{1 - passed:.3%}",
+                f"{np.median(p):.3f}",
+            ]
+        )
+    lines += table(
+        [
+            "set",
+            "images",
+            "accepted (should be ~100%)",
+            "rejected (should be ~100%)",
+            "median plant prob",
+        ],
+        rows_out,
+    )
+    by_class = {}
+    for path, p in zip(sets[names[-1]], probs[names[-1]], strict=True):
+        by_class.setdefault(Path(path).parent.name, []).append(p >= threshold)
+    lines += ["", "Imagenette val, accepted as plant by class (the errors):", ""]
+    lines += table(
+        ["class", "images", "accepted as plant"],
+        [[IMAGENETTE.get(c, c), len(v), f"{np.mean(v):.1%}"] for c, v in sorted(by_class.items())],
+    )
+    doc.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return threshold
+
+
+def main(argv=None) -> None:
+    from omegaconf import OmegaConf
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--serving-config", default="configs/vision/serving.yaml")
+    parser.add_argument("--splits-csv", default="data/splits/wheat_v2.csv")
+    parser.add_argument("--negatives", default="data/raw/images_public/imagenette2_160")
+    parser.add_argument("--keep", type=float, default=0.995, help="share of wheat val to accept")
+    args = parser.parse_args(argv)
+    threshold = calibrate(
+        OmegaConf.load(args.serving_config), args.splits_csv, args.negatives, args.keep
+    )
+    print(f"min_plant_prob: {threshold:.4f}  (report: {DOC})")
+
+
+if __name__ == "__main__":
+    main()

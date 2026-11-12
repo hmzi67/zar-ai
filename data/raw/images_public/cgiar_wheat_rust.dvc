@@ -1,0 +1,6 @@
+outs:
+- md5: d22eaa867266dac144a5f502a95f5c5a.dir
+  size: 3237058425
+  nfiles: 1487
+  hash: md5
+  path: cgiar_wheat_rust

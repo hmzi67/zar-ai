@@ -1,0 +1,6 @@
+outs:
+- md5: c5261f96ce891b0da90173fb43f3950d.dir
+  size: 107794109
+  nfiles: 13397
+  hash: md5
+  path: imagenette2_160

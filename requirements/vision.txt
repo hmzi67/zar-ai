@@ -1,6 +1,8 @@
 torch>=2.2,<3
 torchvision>=0.17,<1
 timm>=1.0,<2
+# CLIP for the chatbot's plant filter (zarai.vision.plant_filter); also in nlp.txt
+transformers>=4.45,<6
 pillow>=10,<14
 onnx>=1.16,<2
 onnxruntime>=1.18,<2

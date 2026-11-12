@@ -1,4 +1,6 @@
-"""ZarAI API. /chat, /classify, /ask and /retrieve return 501 until the models and KB exist."""
+"""ZarAI API. /chat returns 501 until the KB and generator exist. /classify and /ask work once the
+image model is served (configs/vision/serving.yaml); /ask then answers with the diagnosis alone.
+/retrieve returns KB passages without the generator, and 501 until the KB exists."""
 
 import logging
 from collections.abc import Callable
@@ -19,8 +21,9 @@ from app.backend.schemas import (
 )
 from app.backend.settings import settings
 from zarai import __version__
-from zarai.fusion.pipeline import Pipeline
+from zarai.fusion.pipeline import NOT_READY, Pipeline
 from zarai.nlp.script_detect import detect_script
+from zarai.vision.serving import InvalidImageError
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="ZarAI API", version=__version__)
@@ -40,9 +43,11 @@ def get_pipeline() -> Pipeline:
 def _call_pipeline(call: Callable[[Pipeline], dict]) -> dict:
     try:
         return call(get_pipeline())
-    except (NotImplementedError, FileNotFoundError, ImportError) as error:
+    except NOT_READY as error:
         log.warning("pipeline not ready: %s", error)
         raise HTTPException(status_code=501, detail="Model or knowledge base not ready") from error
+    except InvalidImageError as error:
+        raise HTTPException(status_code=400, detail="Could not read the image") from error
 
 
 def _read_image(image: UploadFile) -> bytes:
@@ -53,6 +58,13 @@ def _read_image(image: UploadFile) -> bytes:
     if len(data) > limit:
         raise HTTPException(status_code=413, detail=f"Image over {settings.max_upload_mb} MB")
     return data
+
+
+def _search_kb(pipeline: Pipeline, question: str) -> dict:
+    retriever = getattr(pipeline, "retriever", None)
+    if retriever is None:
+        raise HTTPException(status_code=501, detail="Knowledge base not ready")
+    return {"chunks": retriever.search(question, getattr(pipeline, "top_k", 5))}
 
 
 @app.get("/health")
@@ -68,7 +80,7 @@ def chat(request: ChatRequest) -> AnswerResponse:
 @app.post("/retrieve")
 def retrieve(request: ChatRequest) -> RetrieveResponse:
     """KB passages for a question, without the LLM, so retrieval can be checked on its own."""
-    chunks = _call_pipeline(lambda p: {"chunks": p.retriever.search(request.question, p.top_k)})
+    found = _call_pipeline(lambda p: _search_kb(p, request.question))
     passages = [
         Passage(
             chunk_id=c["chunk_id"],
@@ -77,7 +89,7 @@ def retrieve(request: ChatRequest) -> RetrieveResponse:
             score=c["score"],
             text=c["text"],
         )
-        for c in chunks["chunks"]
+        for c in found["chunks"]
     ]
     return RetrieveResponse(lang=detect_script(request.question), passages=passages)
 

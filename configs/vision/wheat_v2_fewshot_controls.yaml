@@ -1,0 +1,43 @@
+# Controls for the few-shot NWRD adaptation: did the adapted model learn stripe rust, or the NWRD
+# field? Run with `python -m zarai.vision.fewshot_controls`. The adaptations repeat
+# wheat_v2_fewshot.yaml's (same NWRD split, same draws, same budget) and are logged to MLflow.
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment: wheat_v2_fewshot_controls
+fewshot_config: configs/vision/wheat_v2_fewshot.yaml
+model: { backbone: dinov2_vit_b14, mode: full, aug: strong }
+ks: [0, 10, 25, 50]
+draws: 5
+
+controls:
+  # 1. Shortcut: tiles from the NWRD test images whose rust mask is empty. They are mostly leaf
+  # (leaf_mask share >= min_leaf_share) and don't touch any tile with marked rust, so they are
+  # field leaf without (marked) rust. A model that learned "NWRD look -> yellow_rust" calls them
+  # yellow_rust as often as the rust tiles. Unmarked rust can't be ruled out, so this is an upper
+  # bound on the shortcut.
+  empty_tiles: { tile_size: 384, min_leaf_share: 0.5 }
+  # 2. Lesion ablation: the same NWRD test rust tiles with the marked rust (dilated) inpainted.
+  # Recall should collapse if the model reads the lesions.
+  ablation: { dilate_px: 9, inpaint_radius: 7 }
+  # 3. Grad-CAM for the yellow_rust class on NWRD test rust tiles, against the rust mask.
+  # 4. Collateral: per-class recall on the pooled test split, before and after adaptation.
+  # 5. Transfer: the same NWRD adaptation applied to the LOSO model that never saw Ethiopia
+  # (healthy images drawn from that fold's train split), scored on Ethiopian stripe rust.
+  transfer_fold: mendeley_wheat_leaf_ethiopia
+
+# Decided before running. Judged on the mean over draws at k = 25 and k = 50 (the candidates).
+criteria:
+  shortcut_max_ratio: 0.5 # empty leaf tiles called yellow_rust <= 0.5 x NWRD test recall
+  ablation_max_ratio: 0.5 # recall with rust inpainted <= 0.5 x recall on the intact tiles
+  cam_min_lift: 1.2 # Grad-CAM mass inside the rust mask / mask area, mean over tiles
+  collateral_max_drop: 0.05 # no class's pooled-test recall falls by more than 5 points
+  transfer_min_gain: 0.10 # Ethiopian yellow_rust recall rises by at least 10 points
+  transfer_max_healthy_rise: 0.05 # Ethiopian healthy called a disease rises by at most 5 points
+
+# Step 3 (only if every criterion passes): the adapted model to keep is chosen on the NWRD adapt
+# split, never the test split: recall on the adapt tiles that weren't drawn, minus the share of
+# pooled val healthy images called yellow_rust.
+select: { ks: [25, 50] }
+output:
+  doc: experiments/wheat_v2_fewshot_controls.md
+  best_checkpoint: experiments/runs/fewshot_controls/best_adapted.pt

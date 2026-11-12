@@ -1,4 +1,6 @@
-from zarai.vision.register import best_seed, version_tags
+from types import SimpleNamespace
+
+from zarai.vision.register import best_seed, sync_descriptions, version_tags
 
 
 def test_best_seed_uses_val_only():
@@ -35,3 +37,29 @@ def test_version_tags_record_what_serving_needs():
     assert tags["eval_resize"] == "256"
     assert tags["onnx_sha256"] == "sha"
     assert all(isinstance(value, str) for value in tags.values())
+
+
+class FakeClient:
+    def __init__(self, model, version):
+        self.model, self.version, self.updates = model, version, []
+
+    def get_registered_model(self, name):
+        return SimpleNamespace(description=self.model)
+
+    def get_model_version(self, name, version):
+        return SimpleNamespace(description=self.version)
+
+    def update_registered_model(self, name, description):
+        self.updates.append(("model", description))
+
+    def update_model_version(self, name, version, description):
+        self.updates.append(("version", version, description))
+
+
+def test_sync_descriptions_updates_only_what_differs():
+    client = FakeClient("old", "new")
+    sync_descriptions(client, "wheat-vision", "1", "new")
+    assert client.updates == [("model", "new")]
+    unchanged = FakeClient("new", "new")
+    sync_descriptions(unchanged, "wheat-vision", "1", "new")
+    assert unchanged.updates == []

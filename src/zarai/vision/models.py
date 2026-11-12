@@ -41,7 +41,12 @@ def build_model(
 
 
 def load_classifier(cfg):
-    """Return an object with classify(image_bytes) -> {"top": [{"label", "prob"}], "abstain": bool}."""
-    raise NotImplementedError(
-        "TODO: load trained checkpoint, apply plant filter, temperature and abstention threshold"
-    )
+    """Return an object with classify(image_bytes) -> {"top": [{"label", "prob"}], "abstain": bool}.
+
+    cfg is a serving config such as configs/vision/serving.yaml, naming one wheat_v2 MLflow run.
+    """
+    if "run_id" not in cfg:
+        raise NotImplementedError("the vision config names no trained run to serve (run_id)")
+    from zarai.vision.serving import WheatClassifier
+
+    return WheatClassifier(cfg)

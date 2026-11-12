@@ -1,10 +1,33 @@
 import { FormEvent, useEffect, useState } from "react";
-import { NotReadyError, sendQuestion } from "./api";
-import { LANGUAGES, STRINGS, UiLang } from "./i18n";
+import { BadImageError, NotReadyError, sendQuestion, Vision } from "./api";
+import { LANGUAGES, STRINGS, Strings, UiLang } from "./i18n";
 
 interface Message {
   role: "user" | "bot";
   text: string;
+  imageUrl?: string;
+  vision?: Vision | null;
+}
+
+function Predictions({ vision, t }: { vision: Vision; t: Strings }) {
+  return (
+    <div className="predictions">
+      <span className="predictions-title">
+        {t.modelSaw}
+        {vision.band === "unsure" && ` (${t.lowConfidence})`}
+        {vision.band === "likely" && ` (${t.likely})`}
+      </span>
+      {vision.top.map(({ label, prob }) => (
+        <div key={label} className="prediction">
+          <span className="prediction-label">{t.diseases[label] ?? label}</span>
+          <span className="prediction-bar" aria-hidden="true">
+            <span style={{ width: `${Math.round(prob * 100)}%` }} />
+          </span>
+          <span className="prediction-prob">{(prob * 100).toFixed(1)}%</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // Each message is displayed by the script it was written in, not by the UI language.
@@ -27,17 +50,25 @@ export default function App() {
     event.preventDefault();
     const text = question.trim();
     if (!text || busy) return;
-    setMessages((current) => [...current, { role: "user", text }]);
+    const imageUrl = image ? URL.createObjectURL(image) : undefined;
+    setMessages((current) => [...current, { role: "user", text, imageUrl }]);
     setQuestion("");
     setBusy(true);
-    let reply: string;
+    let reply: Message;
     try {
-      reply = (await sendQuestion(text, image)).answer;
+      const response = await sendQuestion(text, image);
+      reply = { role: "bot", text: response.answer, vision: response.vision };
       setImage(null);
     } catch (error) {
-      reply = error instanceof NotReadyError ? t.notReady : t.error;
+      const failure =
+        error instanceof NotReadyError
+          ? t.notReady
+          : error instanceof BadImageError
+            ? t.badImage
+            : t.error;
+      reply = { role: "bot", text: failure };
     }
-    setMessages((current) => [...current, { role: "bot", text: reply }]);
+    setMessages((current) => [...current, reply]);
     setBusy(false);
   }
 
@@ -59,13 +90,15 @@ export default function App() {
 
       <section className="chat" aria-live="polite">
         {messages.map((message, i) => (
-          <p
-            key={i}
-            className={`bubble ${message.role} ${isUrduScript(message.text) ? "urdu" : ""}`}
-            dir="auto"
-          >
-            {message.text}
-          </p>
+          <div key={i} className={`bubble ${message.role}`}>
+            {message.imageUrl && <img className="photo" src={message.imageUrl} alt="" />}
+            <p className={isUrduScript(message.text) ? "urdu" : ""} dir="auto">
+              {message.text}
+            </p>
+            {message.vision && message.vision.top.length > 0 && (
+              <Predictions vision={message.vision} t={t} />
+            )}
+          </div>
         ))}
         {busy && <p className="status">{t.sending}…</p>}
       </section>
