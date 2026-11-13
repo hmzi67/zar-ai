@@ -1,0 +1,72 @@
+# Gemma 4 26B-A4B-it (4-bit) as a zero-shot wheat disease classifier, on the same test sets as the
+# wheat_v2 vision models. Run with `python -m zarai.vision.vlm_zero_shot`.
+splits_csv: data/splits/wheat_v2.csv
+classes: [black_rust, brown_rust, healthy, septoria, yellow_rust]
+
+model:
+  # 4-bit AWQ (int4, group 32) of Google's quantisation-aware-trained Gemma 4 26B-A4B-it; the
+  # vision tower and lm_head stay bf16.
+  id: cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4
+  revision: 76373001e106330a6815f237ef00838c7fed9356
+  base: google/gemma-4-26B-A4B-it
+  enable_thinking: false
+  # vLLM engine settings; a variant's `engine` overrides them. The 4-bit weights take 16.6 GiB of
+  # the 20 GB card. At most 8 requests run together: the logits for 262k-token vocab take ~33 MB
+  # per request, and the KV cache that's left holds only a few requests anyway.
+  engine: { gpu_memory_utilization: 0.95, max_num_seqs: 8 }
+
+generation: { temperature: 0.0, max_tokens: 256, seed: 0 }
+batch: 64 # images per vLLM call; results are appended after each call, so a run can resume
+
+# Image token budgets (Gemma 4 max_soft_tokens) and in-context references. shots = reference
+# images per class, drawn once from the pooled TRAIN split (never val or test) with `seed`.
+variants:
+  zero_shot_280: { budget: 280, shots: 0, engine: { max_model_len: 1024 } }
+  zero_shot_1120: { budget: 1120, shots: 0, engine: { max_model_len: 1792 } }
+  in_context_280:
+    { budget: 280, shots: 1, engine: { max_model_len: 2560, max_num_batched_tokens: 2560 } }
+  # in-context at 1120 (~7.3k tokens per request) doesn't fit beside the weights on a 20 GB card
+  # without CPU offload (about 4.5x slower), so it isn't run.
+references: { seed: 0 }
+
+# Rust images where the report gives the share Gemma labels yellow_rust: [test set, true class].
+yellow_rust_checks:
+  - [loso:mendeley_iari_leaf_rust, brown_rust]
+  - [loso:cgiar_wheat_rust, brown_rust]
+  - [loso:kaggle, brown_rust]
+  - [loso:cgiar_wheat_rust, black_rust]
+
+# The prompt is fixed here, in English. {classes} is replaced by the list below, one per line.
+prompt:
+  system: >-
+    You are a plant pathologist. You classify photos of wheat leaves by disease.
+  classes:
+    yellow_rust: "stripe rust (yellow rust): yellow-orange pustules arranged in stripes along the leaf veins"
+    brown_rust: "leaf rust (brown rust): scattered round orange-brown pustules"
+    black_rust: "stem rust (black rust): dark red-brown elongated pustules, mainly on stems"
+    septoria: "septoria leaf blotch: tan or brown blotches with dark dots in them"
+    healthy: "a green leaf with no pustules, blotches or lesions"
+    unsure: "you cannot tell from this photo"
+  references_intro: "Here is one labelled reference photo for each class."
+  reference: "Reference photo, label {label}:"
+  query_intro: "Now classify this photo:"
+  task: |-
+    Classify the wheat photo into exactly one of these labels:
+    {classes}
+
+    Answer with JSON only, no other text:
+    {{"label": "<one of: {labels}>", "confidence": <number from 0 to 1>, "evidence": "<short visual reason>"}}
+
+# DINOv2-B (full fine-tune, strong augmentation) from the wheat_v2 grid, for comparison: every seed
+# of the pooled run (pooled test, NWRD) and of each LOSO fold (its held-out source).
+dinov2:
+  tracking_uri: file:./mlruns
+  experiment: wheat_v2
+  tags: { backbone: dinov2_vit_b14, mode: full, aug: strong, background: none }
+  timing_run: 59b1519214304ec885ddc26518002a00 # the served run, for seconds per image
+
+timing: { latency_images: 32 } # batch-1 latency, measured on the first pooled-test images
+
+output:
+  dir: experiments/runs/vlm_zero_shot # predictions (JSONL per variant) and timings; git-ignored
+  doc: experiments/vlm_zero_shot.md

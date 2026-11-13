@@ -34,3 +34,23 @@ stages:
       - data/interim/label_review_v2.csv:
           persist: true
           cache: false
+  wheat_qa_v1:
+    # Wheat Q&A v1 from the two synthetic Excel files (see data/processed/qa/README.md).
+    # Quarantined rows go to data/interim/qa_review.csv for expert review; they are not in v1.
+    cmd: .venv/bin/python -m zarai.data.wheat_qa --config configs/data/wheat_qa_v1.yaml
+    deps:
+      - data/qa/ZarAI_Wheat_Classification.xlsx
+      - data/qa/wheat only qa dataset..xlsx
+      - configs/data/wheat_qa_v1.yaml
+      - src/zarai/data/wheat_qa.py
+      - src/zarai/nlp/normalise.py
+      - src/zarai/kb/clean.py
+      - src/zarai/data/schemas/qa_record.schema.json
+    outs:
+      - data/processed/qa/wheat_qa_v1.jsonl
+      - data/processed/qa/wheat_qa_variants.jsonl
+      - data/processed/qa/wheat_qa_v1.summary.json
+      - data/processed/qa/safety_refusals.jsonl
+      - data/processed/qa/KB_CANDIDATES.md
+      - data/interim/qa_review.csv
+      - data/interim/qa_cleaning_log.csv

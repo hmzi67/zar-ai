@@ -1,0 +1,16 @@
+# Coarse 3-class evaluation (healthy / rust / septoria) of DINOv2-B, Gemma 4 and their agree-rule,
+# from the saved predictions of configs/vision/vlm_zero_shot.yaml. No model is run or fit.
+# Run with `python -m zarai.vision.coarse_eval`.
+base: configs/vision/vlm_zero_shot.yaml
+
+groups: # fine class -> coarse class
+  healthy: healthy
+  septoria: septoria
+  yellow_rust: rust
+  brown_rust: rust
+  black_rust: rust
+coarse_classes: [healthy, rust, septoria]
+
+output:
+  doc: experiments/coarse_eval.md
+  summary: experiments/runs/vlm_zero_shot/coarse_summary.json # git-ignored
