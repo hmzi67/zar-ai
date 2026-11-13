@@ -4,6 +4,7 @@ from zarai.common.io import read_jsonl
 from zarai.nlp.retriever.bm25 import BM25Retriever
 from zarai.nlp.retriever.dense import DenseRetriever
 from zarai.nlp.retriever.rerank import Reranker
+from zarai.nlp.script_detect import detect_script
 
 
 class HybridRetriever:
@@ -19,6 +20,18 @@ class HybridRetriever:
                 entry = fused.setdefault(chunk["chunk_id"], {**chunk, "score": 0.0})
                 entry["score"] += 1.0 / (self.rrf_k + rank)
         return sorted(fused.values(), key=lambda c: -c["score"])[:k]
+
+
+class ScriptRoutedRetriever:
+    """Send each query to the retriever for its script: urdu for "ur", latin for "ur-Latn" and "en"."""
+
+    def __init__(self, urdu, latin):
+        self.urdu = urdu
+        self.latin = latin
+
+    def search(self, query: str, k: int = 5) -> list[dict]:
+        retriever = self.urdu if detect_script(query) == "ur" else self.latin
+        return retriever.search(query, k)
 
 
 class RerankedRetriever:
@@ -47,6 +60,12 @@ def build_retriever(cfg):
         retriever = HybridRetriever(
             [BM25Retriever(chunks), dense()], cfg.hybrid.rrf_k, cfg.hybrid.candidates
         )
+    elif cfg.mode == "routed":
+        shared = dense()
+        urdu = HybridRetriever(
+            [BM25Retriever(chunks), shared], cfg.hybrid.rrf_k, cfg.hybrid.candidates
+        )
+        retriever = ScriptRoutedRetriever(urdu, shared)
     else:
         raise ValueError(f"unknown retriever mode: {cfg.mode}")
     if cfg.rerank.enabled:

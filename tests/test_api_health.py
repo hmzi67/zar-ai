@@ -24,6 +24,12 @@ class ToyRetriever:
         return [{"chunk_id": "c1", "text": "Irrigate twice.", "score": 1.0}]
 
 
+class ToyKBRetriever:
+    def search(self, query, k):
+        chunk = {"chunk_id": "src_0011_c0001", "source_id": "src_0011", "pages": ["1"]}
+        return [{**chunk, "text": "پہلا پانی بوائی کے 20 تا 25 دن بعد", "score": 0.8}]
+
+
 @pytest.fixture
 def pipeline(monkeypatch):
     """Point the API at an injected pipeline instead of real models."""
@@ -73,6 +79,7 @@ def test_image_endpoints_return_501_without_an_image_model(pipeline):
     pipeline(classifier=NoModel(), retriever=NotReady())
     assert client.post("/classify", files=IMAGE).status_code == 501
     assert client.post("/ask", data={"question": "kya hai"}, files=IMAGE).status_code == 501
+    assert client.post("/retrieve", json={"question": "kya hai"}).status_code == 501
 
 
 def test_ask_answers_with_the_diagnosis_until_the_kb_exists(pipeline):
@@ -135,3 +142,16 @@ def test_upload_type_and_size_limits(monkeypatch):
     assert client.post("/classify", files=text_file).status_code == 415
     monkeypatch.setattr(settings, "max_upload_mb", 0)
     assert client.post("/classify", files=IMAGE).status_code == 413
+
+
+def test_retrieve_returns_passages_without_llm(pipeline):
+    pipeline(retriever=ToyKBRetriever())
+    body = client.post("/retrieve", json={"question": "گندم کو پانی کب دیں؟"}).json()
+    assert body["lang"] == "ur"
+    assert body["passages"][0]["chunk_id"] == "src_0011_c0001"
+    assert body["passages"][0]["source_id"] == "src_0011"
+    assert body["passages"][0]["pages"] == ["1"]
+
+
+def test_retrieve_validation():
+    assert client.post("/retrieve", json={"question": ""}).status_code == 422

@@ -1,5 +1,6 @@
 """ZarAI API. /chat returns 501 until the KB and generator exist. /classify and /ask work once the
-image model is served (configs/vision/serving.yaml); /ask then answers with the diagnosis alone."""
+image model is served (configs/vision/serving.yaml); /ask then answers with the diagnosis alone.
+/retrieve returns KB passages without the generator, and 501 until the KB exists."""
 
 import logging
 from collections.abc import Callable
@@ -15,10 +16,13 @@ from app.backend.schemas import (
     ChatRequest,
     ClassifyResponse,
     HealthResponse,
+    Passage,
+    RetrieveResponse,
 )
 from app.backend.settings import settings
 from zarai import __version__
 from zarai.fusion.pipeline import NOT_READY, Pipeline
+from zarai.nlp.script_detect import detect_script
 from zarai.vision.serving import InvalidImageError
 
 log = logging.getLogger(__name__)
@@ -56,6 +60,13 @@ def _read_image(image: UploadFile) -> bytes:
     return data
 
 
+def _search_kb(pipeline: Pipeline, question: str) -> dict:
+    retriever = getattr(pipeline, "retriever", None)
+    if retriever is None:
+        raise HTTPException(status_code=501, detail="Knowledge base not ready")
+    return {"chunks": retriever.search(question, getattr(pipeline, "top_k", 5))}
+
+
 @app.get("/health")
 def health() -> HealthResponse:
     return HealthResponse(version=__version__)
@@ -64,6 +75,23 @@ def health() -> HealthResponse:
 @app.post("/chat")
 def chat(request: ChatRequest) -> AnswerResponse:
     return AnswerResponse(**_call_pipeline(lambda p: p.answer(request.question)))
+
+
+@app.post("/retrieve")
+def retrieve(request: ChatRequest) -> RetrieveResponse:
+    """KB passages for a question, without the LLM, so retrieval can be checked on its own."""
+    found = _call_pipeline(lambda p: _search_kb(p, request.question))
+    passages = [
+        Passage(
+            chunk_id=c["chunk_id"],
+            source_id=c.get("source_id"),
+            pages=[str(p) for p in c.get("pages", [])],
+            score=c["score"],
+            text=c["text"],
+        )
+        for c in found["chunks"]
+    ]
+    return RetrieveResponse(lang=detect_script(request.question), passages=passages)
 
 
 @app.post("/classify")
