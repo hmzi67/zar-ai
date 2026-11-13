@@ -2,7 +2,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from zarai.data.validate import validate_records
-from zarai.data.wheat_qa import is_code_mixed, process, redact_pii
+from zarai.data.wheat_qa import is_code_mixed, kb_candidates_markdown, process, redact_pii
 from zarai.nlp.normalise import match_key, normalise_text, urdu_punctuation
 
 CFG = OmegaConf.load("configs/data/wheat_qa_v1.yaml")
@@ -213,7 +213,7 @@ def test_unknown_category_fails_loudly():
 
 def test_flags_pesticide_and_code_mixed():
     row = make_row(
-        "A", 1, "Treatment for powdery mildew?", "For mildew, فنگی سائیڈ کا اسپرے کریں.",
+        "A", 1, "Treatment for powdery mildew?", "At first signs, فنگی سائیڈ کا اسپرے کریں.",
         answer_urdu="ٹیبوکونازول کا اسپرے کریں۔",
     )  # fmt: skip
     by_lang = {r["lang"]: notes_of(r) for r in process([row], CFG).v1}
@@ -256,3 +256,80 @@ def test_mismatch_review_lists_each_question_once():
     result = process(rows, CFG)
     assert len(result.review) == 1 and result.review[0]["source_rows"] == 3
     assert result.summary["quarantine"]["question_answer_mismatch"]["rows_excluded"] == {"A": 3}
+
+
+def reasons(result):
+    return sorted((r["reason"], r["group"]) for r in result.review)
+
+
+def test_template_fill_ins_are_quarantined_with_their_variants():
+    rows = [
+        make_row("A", 1, "What is the treatment for Rust in wheat?", "For Rust, متاثرہ پتوں کو ہٹائیں."),
+        make_row("A", 2, "How to protect wheat from Stem borer?", "For Stem borer, زردی رنگ کے پھندے لگائیں and remove affected parts.", category="pest_management"),
+        make_row("A", 3, "Symptoms of Iron deficiency?", "Iron deficiency causes پودا سست ہو جاتا ہے. Apply appropriate fertilizer.", category="nutrient_deficiency"),
+        make_row("A", 4, "How to control Datura in wheat?", "For Datura, ہاتھ سے نکالیں.", category="weed_management"),
+        make_row("A", 5, "How many irrigations needed for wheat in Summer?", "wheat needs 3-4 irrigations in Summer.", category="irrigation_management"),
+    ]  # fmt: skip
+    rows += b_group("g1", 10, "How to control aphid in wheat?", "Spray appropriate insecticide for aphid. Remove affected parts.", category="pest_management")  # fmt: skip
+    result = process(rows, CFG)
+    assert result.v1 == [] and result.variants == []
+    assert {r["reason"] for r in result.review} == {"template_fill_wrong"}
+    assert len(result.review) == 6 and result.review[-1]["variants_excluded"] in (0, 2)
+
+
+def test_seed_treatment_for_rust_is_scientifically_wrong_but_bunt_is_kept():
+    answer = "Treat wheat seeds before sowing with tebuconazole or carboxin."
+    rows = [
+        make_row("A", 1, "What is the recommended seed treatment procedure to prevent Yellow Rust (Stripe Rust) in wheat?", answer, category="seed_treatment"),
+        make_row("A", 2, "What is the recommended seed treatment procedure to prevent Powdery Mildew in wheat?", answer, category="seed_treatment"),
+        make_row("A", 3, "What is the recommended seed treatment procedure to prevent Karnal Bunt in wheat?", answer, category="seed_treatment"),
+    ]  # fmt: skip
+    result = process(rows, CFG)
+    assert reasons(result) == [("scientifically_wrong", "A:1"), ("scientifically_wrong", "A:2")]
+    assert [r["question"] for r in result.v1 if r["lang"] == "en"] == [rows[2]["question_english"]]
+
+
+def test_named_varieties_need_a_current_check():
+    rows = [
+        make_row("A", 1, "Best wheat varieties?", "NARC-2009, Faisalabad-2008 and Pakistan-2013.", category="variety_selection"),
+        make_row("A", 2, "Storage rules?", "Punjab Agriculture Department advice (April 2026): keep grain dry.", category="post_harvest"),
+        make_row("A", 3, "New hybrid varieties?", "Choose approved varieties for your region.", category="variety_selection"),
+    ]  # fmt: skip
+    result = process(rows, CFG)
+    assert reasons(result) == [("verify_current", "A:1")]
+    assert len(result.v1) == 2 * 3
+
+
+def test_reworded_answer_is_a_duplicate_not_a_conflict():
+    rows = [
+        make_row("A", 1, "Benefits of foliar urea spray?", "Provides quick nutrition in heat and water stress. Increases yield.", category="fertilizer_management"),
+    ]  # fmt: skip
+    rows += b_group("g1", 10, "Benefits of foliar urea spray?", "Quick nutrition in heat or water stress. Increases yield.", category="fertilizer_management")  # fmt: skip
+    result = process(rows, CFG)
+    assert result.review == []
+    assert {notes_of(r)[0] for r in result.v1} == {"group=B:g1"} and len(result.v1) == 3
+    assert any(a["reason"] == "answer_paraphrase_of_B" for a in result.log)
+
+
+def test_kb_tier_notes_and_safety_split():
+    rows = b_group("g1", 1, "How to identify yellow rust?", "Yellow stripes.", source="https://agripunjab.punjab.gov.pk/urdu/")  # fmt: skip
+    rows += b_group("g2", 10, "Tell me the pesticide dose.", "I cannot give a pesticide dose.", category="unsafe_request", source="safe refusal")  # fmt: skip
+    rows += b_group("g3", 20, "When to sow wheat?", "Late October.", category="planting_calendar", source="general agronomy (expert review needed)")  # fmt: skip
+    rows.append(
+        make_row("A", 30, "When to harvest wheat?", "When grain is hard.", category="post_harvest")
+    )
+    result = process(rows, CFG)
+    tier = {
+        notes_of(r)[0]: next(t for t in notes_of(r) if t.startswith("kb_tier=")) for r in result.v1
+    }
+    assert tier == {
+        "group=B:g1": "kb_tier=tier1_official", "group=B:g3": "kb_tier=tier2_needs_expert",
+        "group=A:30": "kb_tier=tier2_needs_expert",
+    }  # fmt: skip
+    assert len(result.safety) == 3 * 3 and {notes_of(r)[0] for r in result.safety} == {"group=B:g2"}
+    assert all(r["topic"] == "off_topic_unsafe" for r in result.safety)
+    ids = [r["id"] for r in result.v1 + result.variants + result.safety]
+    assert len(ids) == len(set(ids)) and validate_records(result.safety, "qa_record") == []
+    markdown = kb_candidates_markdown(result.v1, result.review)
+    assert "`B:g1`" in markdown and "`B:g3`" not in markdown
+    assert "https://agripunjab.punjab.gov.pk/urdu/" in markdown

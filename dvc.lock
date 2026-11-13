@@ -119,8 +119,8 @@ stages:
     deps:
     - path: configs/data/wheat_qa_v1.yaml
       hash: md5
-      md5: 478d6a53c28d2ea7e25718b44fdcb047
-      size: 2781
+      md5: b985256e56bdcb1729bc1a2420738bf6
+      size: 6665
     - path: data/qa/ZarAI_Wheat_Classification.xlsx
       hash: md5
       md5: 21b243b27f4563cb121b400defeeba11
@@ -135,8 +135,8 @@ stages:
       size: 1177
     - path: src/zarai/data/wheat_qa.py
       hash: md5
-      md5: 8c0d1d7aa95c1277ed0605b0e785441d
-      size: 24271
+      md5: e48253c71263dc16f85e9f924ef8ed5f
+      size: 32063
     - path: src/zarai/kb/clean.py
       hash: md5
       md5: 2af96441d1b459ff0ef7bbdbc16f1cb8
@@ -148,21 +148,29 @@ stages:
     outs:
     - path: data/interim/qa_cleaning_log.csv
       hash: md5
-      md5: 2bda1d2c599cbe5b2bfe41986f3ef92e
-      size: 678824
+      md5: 1deef209975c46ebc6d11f0d60f53776
+      size: 950466
     - path: data/interim/qa_review.csv
       hash: md5
-      md5: 670943d77a9c5184cc20f4a78225f3fb
-      size: 64241
+      md5: b503c056013b51e8e91bc8185c8d9b41
+      size: 115617
+    - path: data/processed/qa/KB_CANDIDATES.md
+      hash: md5
+      md5: 7cb97f767f8031a8bcd70fee09c34be9
+      size: 28096
+    - path: data/processed/qa/safety_refusals.jsonl
+      hash: md5
+      md5: 0f8934cb9e6c699151b25db4ebc21e37
+      size: 494040
     - path: data/processed/qa/wheat_qa_v1.jsonl
       hash: md5
-      md5: b6c2475247ccf9af21dd474dcbb409d0
-      size: 388616
+      md5: 469a4f1bf1119445003a8a111dccc331
+      size: 404789
     - path: data/processed/qa/wheat_qa_v1.summary.json
       hash: md5
-      md5: 0a16e1b8b6ffd8d8df5e37c4f3d4c673
-      size: 2204
+      md5: 8c41457c0925f2bf00b78bf873a44a3d
+      size: 3053
     - path: data/processed/qa/wheat_qa_variants.jsonl
       hash: md5
-      md5: df8a41f992714d97237efdd276cf921f
-      size: 27290397
+      md5: 274f433aa946b7f30ee29b6ec960f45e
+      size: 28496476

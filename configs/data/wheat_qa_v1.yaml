@@ -10,10 +10,23 @@ outputs:
   summary: data/processed/qa/wheat_qa_v1.summary.json
   review: data/interim/qa_review.csv                    # quarantined for expert review
   log: data/interim/qa_cleaning_log.csv
+  safety: data/processed/qa/safety_refusals.jsonl      # safe-refusal rows (and their variants)
+  kb_candidates: data/processed/qa/KB_CANDIDATES.md     # tier-1 rows to check against agripunjab
 
 annotator: import:wheat_qa_v1
 near_duplicate_threshold: 90   # rapidfuzz ratio on the English question; only drops rows with the same answer
-variant_id_start: 1000001      # variants get ids far above v1 so the two files never collide
+answer_paraphrase_threshold: 85  # two answers to one question this similar are one answer, not a conflict
+variant_id_start: 1000001      # variants get ids far above v1 so the files never collide
+safety_id_start: 900001
+
+# kb_tier note from file B's `source` column (first match wins, case-insensitive substring).
+# File A has no source column, so its rows get the default.
+kb_tiers:
+  - match: agripunjab.punjab.gov.pk
+    tier: tier1_official
+  - match: safe refusal
+    tier: safety
+kb_tier_default: tier2_needs_expert   # general plant pathology/agronomy, CIMMYT, news, existing_dataset, file A
 
 # Files' `category` → schema topic. null = the category has no crop topic, so the keyword guess decides.
 category_topic:
@@ -60,12 +73,59 @@ season:
   all_seasons: any
   kharif: any   # wheat is a rabi crop: kept, flagged season_suspect
 
-# Answers that look factually wrong or unsafe (scan report §6). Matched case-insensitively
-# as substrings of the English answer; every row and group carrying one is quarantined.
-unsafe_answers:
-  - match: aluminum phosphide or methyl bromide
-    reason: aluminium phosphide is a fumigant tablet, not a spray; methyl bromide is phased out
-  - match: spray tricyclazole or propiconazole
-    reason: tricyclazole is a rice-blast fungicide, not a rust product
-  - match: 2,4-d herbicide for wild oats
-    reason: 2,4-D controls broad-leaf weeds, not wild oats (a grass)
+# Quarantine rules → data/interim/qa_review.csv, never v1. Checked in this order; the first rule
+# that matches a row names its reason. `question` / `answer` are case-insensitive regexes, each
+# matched against every language cell of that kind; when a rule has both, both must match.
+# Every row of a matching group is excluded, file-B variants included.
+quarantine_rules:
+  # Unsafe or factually wrong pesticide advice (scan report §6).
+  - name: phosphide_spray
+    reason: unsafe_answer
+    answer: aluminum phosphide or methyl bromide
+    detail: aluminium phosphide is a fumigant tablet, not a spray; methyl bromide is phased out
+  - name: tricyclazole_for_rust
+    reason: unsafe_answer
+    answer: spray tricyclazole or propiconazole
+    detail: tricyclazole is a rice-blast fungicide, not a rust product
+  - name: 2_4_d_for_wild_oats
+    reason: unsafe_answer
+    answer: 2,4-d herbicide for wild oats
+    detail: 2,4-D controls broad-leaf weeds, not wild oats (a grass)
+
+  # Rusts and powdery mildew spread by airborne spores; seed treatment does not prevent them.
+  - name: seed_treatment_for_airborne_disease
+    reason: scientifically_wrong
+    question: seed treatment.*(\b(yellow|leaf|stem|brown|black|stripe|red) rust\b|powdery mildew)
+    detail: rusts and powdery mildew are airborne, not seed-borne; seed treatment does not prevent them
+  - name: rust_called_seed_borne
+    reason: scientifically_wrong
+    answer: seed[- ]borne[^.]*\b(rust|powdery mildew)\b
+    detail: rusts and powdery mildew are airborne, not seed-borne
+
+  # One fill-in answer pasted onto every disease / pest / nutrient / weed / season.
+  - name: one_treatment_for_all_diseases
+    reason: template_fill_wrong
+    answer: ^For [^,]+, (فنگی سائیڈ کا اسپرے کریں|متاثرہ پتوں کو ہٹائیں)\.?$|^Spray fungicide for [^.]+\. Remove infected leaves\.$
+    detail: same treatment (spray fungicide / remove affected leaves) filled in for every disease, incl. mosaic (a virus)
+  - name: one_treatment_for_all_pests
+    reason: template_fill_wrong
+    answer: ^For [^,]+, (کیڑے ناشک کا اسپرے کریں|زردی رنگ کے پھندے لگائیں) and remove affected parts|^Spray appropriate insecticide for [^.]+\. Remove affected parts\.$
+    detail: same control (insecticide / yellow sticky traps) filled in for every pest, incl. stem borer, caterpillar, mite, beetles
+  - name: one_symptom_for_all_deficiencies
+    reason: template_fill_wrong
+    answer: deficiency causes (پودا سست ہو جاتا ہے|پتے پیلے پڑ جاتے ہیں)
+    detail: same symptom (plant becomes sluggish / leaves turn yellow) filled in for every nutrient
+  - name: one_control_for_all_weeds
+    reason: template_fill_wrong
+    answer: ^For [^,]+, (ہربی سائیڈ کا اسپرے کریں|ہاتھ سے نکالیں)\.?$
+    detail: same control (spray herbicide / pull by hand) filled in for every weed
+  - name: irrigation_season_or_stage_fill
+    reason: template_fill_wrong
+    answer: \bin summer\b|موسم گرما|^Irrigate wheat (in|at) .+ every
+    detail: season/stage filled into one irrigation template; wheat is a winter (rabi) crop and is not irrigated in summer
+
+  # Variety recommendations go out of date; check against the current approved list.
+  - name: named_variety
+    reason: verify_current
+    answer: \b(NARC|Faisalabad|Pakistan|Punjab|Akbar|Ujala|Galaxy|Anaj|Borlaug|Dilkash|Sehar|Lasani|Inqilab|Millat|Chakwal|Barani|Dharabi|Shafaq|Nawab|Subhani|Johar|Ghazi|Arooj|Zincol|Bhakkar|Aas|Ihsan|Pirsabak|Wadaan|Tatara)[- ]?(19|20)?\d{2}\b|\b(Zincol|Dilkash|Ujala|Galaxy|Fakhr-e-Bhakkar|Inqilab|Lasani)\b
+    detail: names specific wheat varieties; check against the current approved variety list

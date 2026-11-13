@@ -45,6 +45,38 @@ def outcome(labels, answer, n_coarse, coarse_classes) -> dict:
     for i, c in enumerate(coarse_classes):
         is_c = labels == i
         out[f"recall_{c}"] = float(correct[is_c].mean()) if is_c.any() else None
+    # Rows = true class; columns = coarse classes, then "not answered" (deferred or no label).
+    m = np.zeros((n_coarse, n_coarse + 1), dtype=int)
+    np.add.at(m, (labels, np.where(answered, answer, n_coarse)), 1)
+    out["confusion"] = m.tolist()
+    return out
+
+
+def mean_confusion(outcomes) -> np.ndarray:
+    return np.mean([np.array(o["confusion"], dtype=float) for o in outcomes], axis=0)
+
+
+def rust_stats(m: np.ndarray, coarse_classes) -> dict:
+    """From a (mean) confusion matrix: rust answers vs rust images, rust precision, share of
+    non-rust images called rust, healthy recall and where septoria images go."""
+    r = coarse_classes.index("rust")
+    k = len(coarse_classes)
+    rust_answers, rust_images = m[:, r].sum(), m[r].sum()
+    non_rust = [i for i in range(k) if i != r]
+    non_rust_n = m[non_rust].sum()
+    out = {
+        "rust_answers": float(rust_answers),
+        "rust_images": float(rust_images),
+        "rust_ratio": float(rust_answers / rust_images) if rust_images else None,
+        "rust_precision": float(m[r, r] / rust_answers) if rust_answers else None,
+        "non_rust_called_rust": float(m[non_rust, r].sum() / non_rust_n) if non_rust_n else None,
+    }
+    h = coarse_classes.index("healthy")
+    out["healthy_recall"] = float(m[h, h] / m[h].sum()) if m[h].sum() else None
+    s = coarse_classes.index("septoria")
+    sept = m[s].sum()
+    for j, name in enumerate([*coarse_classes, "not_answered"]):
+        out[f"septoria_to_{name}"] = float(m[s, j] / sept) if sept else None
     return out
 
 
@@ -138,7 +170,7 @@ def render(cfg, base, result) -> list[str]:
         "reference images.",
         "",
     ]
-    names = {"dino": "DINOv2-B alone", "gemma": "Gemma alone", "rule": "agree-rule"}
+    names = METHOD_NAMES
     for set_name, info in result["sets"].items():
         title = {"pooled_test": "Pooled test split", "nwrd": "NWRD field tiles"}.get(set_name)
         title = title or f"LOSO held-out source: {set_name.split(':', 1)[1]}"
@@ -167,6 +199,155 @@ def render(cfg, base, result) -> list[str]:
             )
         lines += table(header, body)
         lines.append("")
+    lines += _rust_section(cfg, result)
+    lines += _confusion_section(cfg, result)
+    return lines
+
+
+METHOD_NAMES = {"dino": "DINOv2-B alone", "gemma": "Gemma alone", "rule": "agree-rule"}
+
+
+def _method_keys(result) -> list[str]:
+    return ["dino"] + [f"{m}:{v}" for v in result["variants"] for m in ("gemma", "rule")]
+
+
+def _title(set_name: str) -> str:
+    return {"pooled_test": "pooled test", "nwrd": "NWRD"}.get(set_name) or set_name.split(":", 1)[1]
+
+
+def _count(x: float) -> str:
+    x = round(float(x), 6)
+    return f"{x:.0f}" if x.is_integer() else f"{x:.1f}"
+
+
+def _rust_section(cfg, result) -> list[str]:
+    from zarai.vision.results import table
+
+    coarse = list(cfg.coarse_classes)
+    lines = [
+        "## Is rust over-predicted?",
+        "",
+        "From the confusion matrices below (DINOv2-B and agree-rule: mean counts over the 3 seeds). "
+        "*rust answers / rust images*: how often the method says rust, relative to how many rust "
+        "images there are; above 1.00 means it says rust more often than rust occurs. *rust "
+        "precision*: share of rust answers that are rust. *non-rust called rust*: share of healthy "
+        "and septoria images answered rust. *septoria ->*: where septoria images go (shares of all "
+        "septoria images; *not answered* = deferred, unsure or invalid).",
+        "",
+    ]
+    header = [
+        "test set",
+        "method",
+        "Gemma variant",
+        "rust answers / rust images",
+        "rust precision",
+        "non-rust called rust",
+        "healthy recall",
+        "septoria -> healthy",
+        "septoria -> rust",
+        "septoria -> septoria",
+        "septoria -> not answered",
+    ]
+    body = []
+    over: dict[str, list[str]] = {}
+    leak: dict[str, list[str]] = {}
+    for set_name, info in result["sets"].items():
+        for key in _method_keys(result):
+            outs = info["methods"].get(key)
+            if not outs:
+                continue
+            kind, _, variant = key.partition(":")
+            st = rust_stats(mean_confusion(outs), coarse)
+            who = f"{METHOD_NAMES[kind]}{' ' + variant if variant else ''}"
+            if st["rust_ratio"] is not None and st["rust_ratio"] > 1:
+                over.setdefault(_title(set_name), []).append(
+                    f"{who} {st['rust_ratio']:.2f} ({_count(st['rust_answers'])} rust answers, "
+                    f"{_count(st['rust_images'])} rust images; precision "
+                    f"{st['rust_precision']:.3f})"
+                )
+            to_rust, to_sept = st["septoria_to_rust"], st["septoria_to_septoria"]
+            if to_rust is not None and to_rust > to_sept:
+                leak.setdefault(_title(set_name), []).append(
+                    f"{who} (rust {to_rust:.1%}, septoria {to_sept:.1%})"
+                )
+            body.append(
+                [
+                    _title(set_name),
+                    METHOD_NAMES[kind],
+                    variant or "-",
+                    f"{_count(st['rust_answers'])} / {_count(st['rust_images'])}"
+                    + (f" = {st['rust_ratio']:.2f}" if st["rust_ratio"] is not None else ""),
+                    vz._f(st["rust_precision"]),
+                    vz._f(st["non_rust_called_rust"], pct=True),
+                    vz._f(st["healthy_recall"]),
+                    *[
+                        vz._f(st[f"septoria_to_{c}"], pct=True)
+                        for c in ("healthy", "rust", "septoria", "not_answered")
+                    ],
+                ]
+            )
+    lines += table(header, body)
+    lines.append("")
+    sets = [_title(s) for s in result["sets"]]
+    if over:
+        lines += [
+            "**Rust is over-predicted** (more rust answers than rust images) on "
+            + ", ".join(over)
+            + ":",
+            "",
+        ]
+        lines += [f"- {name}: " + "; ".join(items) for name, items in over.items()]
+        clean = [name for name in sets if name not in over]
+        lines += [
+            "",
+            f"It is not over-predicted by this measure on {', '.join(clean)}." if clean else "",
+            "",
+        ]
+    else:
+        lines += [
+            "**Rust is not over-predicted anywhere:** every method gives fewer rust answers than "
+            "there are rust images on every test set.",
+            "",
+        ]
+    if leak:
+        lines += [
+            "**Septoria images answered rust more often than septoria:**",
+            "",
+            *[f"- {name}: " + "; ".join(items) for name, items in leak.items()],
+            "",
+        ]
+    return lines
+
+
+def _confusion_section(cfg, result) -> list[str]:
+    from zarai.vision.results import table
+
+    coarse = list(cfg.coarse_classes)
+    lines = [
+        "## Coarse confusion matrices",
+        "",
+        "Rows = true class (present in the set), columns = answer. *not answered* = deferred "
+        "(agree-rule) or unsure / invalid (Gemma). DINOv2-B and agree-rule are mean counts over "
+        "DINOv2-B's 3 seeds.",
+        "",
+    ]
+    for set_name, info in result["sets"].items():
+        for key in _method_keys(result):
+            outs = info["methods"].get(key)
+            if not outs:
+                continue
+            kind, _, variant = key.partition(":")
+            m = mean_confusion(outs)
+            lines += [
+                f"### {_title(set_name)}, {METHOD_NAMES[kind]}"
+                f"{' ' + variant if variant else ''} ({outs[0]['n']} images)",
+                "",
+            ]
+            lines += table(
+                ["true \\ answer", *coarse, "not answered"],
+                [[c, *[_count(x) for x in m[coarse.index(c)]]] for c in info["classes"]],
+            )
+            lines.append("")
     return lines
 
 
