@@ -1,0 +1,19 @@
+# Hybrid of DINOv2-B and Gemma 4, on the test sets of configs/vision/vlm_zero_shot.yaml.
+# Run with `python -m zarai.vision.vlm_hybrid` (needs the Gemma predictions from vlm_zero_shot).
+base: configs/vision/vlm_zero_shot.yaml
+
+# Everything learnable (DINOv2-B temperature, stacker, deferral thresholds) is fit on the
+# validation split of the DINOv2-B run that scores the test set: the pooled run's val split for
+# pooled test and NWRD, and fold S's val split (the other sources only) for held-out source S.
+stacker:
+  C: 1.0 # logistic regression, fixed; not tuned
+  max_iter: 5000
+  # Out-of-fold stacker probabilities on the val split, used only to set its deferral threshold.
+  cv_folds: 5
+  seed: 0
+
+recall_classes: [yellow_rust, brown_rust]
+
+output:
+  doc: experiments/vlm_hybrid.md
+  summary: experiments/runs/vlm_zero_shot/hybrid_summary.json # git-ignored
