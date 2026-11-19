@@ -9,6 +9,8 @@ base and the generator exist, a question with a photo gets the classifier's resu
 
 from zarai.common.config import load_config
 from zarai.fusion.build_prompt import build_fusion_messages
+from zarai.fusion.season_check import season_check
+from zarai.fusion.vision_terms import vision_query
 from zarai.nlp.generator.llm import load_llm
 from zarai.nlp.retriever.hybrid import build_retriever
 from zarai.nlp.safety import OFF_TOPIC_REFUSAL, enforce, is_off_topic
@@ -195,7 +197,10 @@ class Pipeline:
 
         top = vision["top"] if vision else None
         band = vision.get("band", "confident") if vision else None
-        query = f"{question} {top[0]['label']}" if top else question
+        label = top[0]["label"] if top else None
+        query = vision_query(question, label, lang)
+        season = season_check(label, lang)
+        season_note = season["note"] if season else None
         try:
             chunks = self.retriever.search(query, self.top_k)
             if is_off_topic(chunks, self.min_score):
@@ -216,6 +221,7 @@ class Pipeline:
                 "status": "diagnosis",
                 "sources": [],
                 "vision": vision,
+                "season_note": season_note,
             }
         result = enforce(raw, chunks, lang)
         answer = result.answer
@@ -231,4 +237,5 @@ class Pipeline:
             "status": "blocked" if result.blocked else "answered",
             "sources": [chunk["chunk_id"] for chunk in chunks],
             "vision": vision,
+            "season_note": season_note,
         }

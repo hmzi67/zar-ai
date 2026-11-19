@@ -1,0 +1,2 @@
+date,checked_by,scope,result
+2026-11-12,automated pass (pending human check),"86 facts, ur vs ur-Latn vs en answers","3 flagged: fact_056 en units aligned to months; fact_060 ur and ur-Latn variety name aligned to source (PAK-2013); fact_061 Urdu variety name to confirm with expert"

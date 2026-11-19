@@ -50,3 +50,5 @@ class AnswerResponse(BaseModel):
     status: Literal["answered", "clarify", "refused", "blocked", "diagnosis", "not_plant"]
     sources: list[str]
     vision: ClassifyResponse | None = None
+    # Set when the predicted disease does not fit the month, from a KB timing rule (fusion/season_check.py).
+    season_note: str | None = None
